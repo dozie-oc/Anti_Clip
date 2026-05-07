@@ -3,77 +3,69 @@ import os
 import uuid
 
 import aiofiles
-from fastapi import APIRouter, File, HTTPException, UploadFile
-from typing import List
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.database import get_db
+from app.models.project import Project
 from app.models.schemas import UploadResponse
 from app.utils.validators import validate_file_size, validate_video_file
 
 router = APIRouter()
 
-# In-process temp registry  {file_id: metadata_dict}
-_temp_registry: dict[str, dict] = {}
 
+@router.post("/upload", response_model=UploadResponse)
+async def upload_video(
+    file: UploadFile = File(...),
+    prompt: str = Form(""),
+    db: Session = Depends(get_db),
+):
+    """
+    Upload a video file and create a project in one step.
+    The prompt can be set now or updated later before processing.
+    """
+    # 1. Validate extension
+    await validate_video_file(file)
 
-@router.post("/upload", response_model=List[UploadResponse])
-async def upload_files(files: List[UploadFile] = File(...)):
-    """Receive one or more video files and stage them for project creation."""
-    if not files:
-        raise HTTPException(status_code=400, detail="No files provided.")
+    # 2. Generate IDs and paths
+    project_id = str(uuid.uuid4())
+    ext = os.path.splitext(file.filename)[1].lower()
+    stored_name = f"{project_id}{ext}"
 
-    results: List[UploadResponse] = []
+    # 3. Create project upload directory
+    upload_dir = os.path.join(settings.UPLOAD_DIR, project_id)
+    os.makedirs(upload_dir, exist_ok=True)
+    dest_path = os.path.join(upload_dir, stored_name)
 
-    for file in files:
-        # 1. Validate extension
-        await validate_video_file(file)
+    # 4. Stream file to disk
+    async with aiofiles.open(dest_path, "wb") as out_fh:
+        while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+            await out_fh.write(chunk)
 
-        # 2. Build unique stored filename
-        file_id = str(uuid.uuid4())
-        ext = os.path.splitext(file.filename)[1].lower()
-        stored_name = f"{file_id}{ext}"
+    # 5. Validate size after save
+    validate_file_size(dest_path)
+    file_size = os.path.getsize(dest_path)
 
-        # 3. Write to temp directory
-        temp_dir = os.path.join(settings.UPLOAD_DIR, "temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        dest_path = os.path.join(temp_dir, stored_name)
+    # 6. Create project record
+    project = Project(
+        id=project_id,
+        name=file.filename.rsplit(".", 1)[0],  # filename without extension
+        filename=stored_name,
+        original_filename=file.filename,
+        filepath=dest_path,
+        file_size=file_size,
+        prompt=prompt or "Find the most engaging moments",
+        status="pending",
+    )
+    db.add(project)
+    db.commit()
+    db.refresh(project)
 
-        async with aiofiles.open(dest_path, "wb") as out_fh:
-            while chunk := await file.read(1024 * 1024):  # 1 MB chunks
-                await out_fh.write(chunk)
-
-        # 4. Validate size (done post-save to avoid buffering entire file)
-        validate_file_size(dest_path)
-
-        file_size = os.path.getsize(dest_path)
-
-        # 5. Register in temp store
-        _temp_registry[file_id] = {
-            "id": file_id,
-            "filename": stored_name,
-            "original_name": file.filename,
-            "size": file_size,
-            "path": dest_path,
-        }
-
-        results.append(
-            UploadResponse(
-                file_id=file_id,
-                filename=stored_name,
-                original_name=file.filename,
-                size=file_size,
-                message="Upload successful",
-            )
-        )
-
-    return results
-
-
-def get_temp_upload(file_id: str) -> dict | None:
-    """Retrieve staged file metadata by ID."""
-    return _temp_registry.get(file_id)
-
-
-def clear_temp_upload(file_id: str) -> None:
-    """Remove a file from the temp registry after project creation."""
-    _temp_registry.pop(file_id, None)
+    return UploadResponse(
+        project_id=project_id,
+        filename=stored_name,
+        original_name=file.filename,
+        size=file_size,
+        message="Upload successful — project created",
+    )

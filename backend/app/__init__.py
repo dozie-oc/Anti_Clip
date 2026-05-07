@@ -1,1 +1,1 @@
-# AntiClip Backend Application
+"""AntiClip application package."""
