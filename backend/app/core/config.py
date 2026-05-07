@@ -19,11 +19,26 @@ class Settings(BaseSettings):
     # Storage paths (relative to backend/)
     UPLOAD_DIR: str = "storage/uploads"
     CLIPS_DIR: str = "storage/clips"
-    DB_FILE: str = "storage/projects.json"
+    TEMP_DIR: str = "storage/temp"
 
     # Limits
     MAX_UPLOAD_SIZE_MB: int = 2048
     ALLOWED_EXTENSIONS: List[str] = [".mp4", ".mkv", ".mov", ".avi", ".webm"]
+
+    # ── LLM Configuration ──────────────────────────────────────────────────
+    OPENAI_API_KEY: str = ""
+    LLM_MODEL_NAME: str = "gpt-4o"
+    LLM_MAX_SEGMENTS_PER_BATCH: int = 20
+    LLM_SCORE_THRESHOLD: int = 6  # minimum score to select a segment
+    LLM_MAX_CLIPS: int = 10
+
+    # ── Whisper Configuration ──────────────────────────────────────────────
+    WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
+
+    # ── Clip defaults ──────────────────────────────────────────────────────
+    MIN_CLIP_DURATION: float = 5.0
+    MAX_CLIP_DURATION: float = 60.0
+    TARGET_SEGMENT_DURATION: float = 15.0  # target seconds per transcript segment
 
     class Config:
         env_file = ".env"
