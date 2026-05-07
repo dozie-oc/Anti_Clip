@@ -81,7 +81,7 @@ export async function fetchJobStatus(projectId) {
 
 // ── Health ──────────────────────────────────────────────────────────────────
 export async function checkHealth() {
-  const { data } = await api.get('/health')
+  const { data } = await axios.get('/health', { timeout: 5000 })
   return data
 }
 
