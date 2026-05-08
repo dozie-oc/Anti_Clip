@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""
+    # Add FFmpeg directory to PATH so Whisper can find it
+    ffmpeg_bin = getattr(settings, "FFMPEG_PATH", "ffmpeg")
+    if ffmpeg_bin and os.path.isabs(ffmpeg_bin):
+        ffmpeg_dir = os.path.dirname(ffmpeg_bin)
+        if ffmpeg_dir not in os.environ["PATH"]:
+            logger.info(f"Adding {ffmpeg_dir} to system PATH for subprocesses")
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ["PATH"]
+
     # Create tables
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created")

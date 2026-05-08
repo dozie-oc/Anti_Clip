@@ -3,6 +3,8 @@ import logging
 import os
 import subprocess
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,9 +18,11 @@ class VideoService:
         Outputs 16kHz mono WAV (optimal for Whisper).
         """
         os.makedirs(os.path.dirname(output_audio_path), exist_ok=True)
+        ffmpeg_bin = getattr(settings, "FFMPEG_PATH", "ffmpeg")
+        logger.info(f"Using FFmpeg binary at: {ffmpeg_bin}")
 
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-i", video_path,
             "-vn",                    # no video
             "-acodec", "pcm_s16le",   # 16-bit PCM
@@ -49,8 +53,9 @@ class VideoService:
     @staticmethod
     def get_video_duration(video_path: str) -> float:
         """Get video duration in seconds using ffprobe."""
+        ffprobe_bin = getattr(settings, "FFPROBE_PATH", "ffprobe")
         cmd = [
-            "ffprobe",
+            ffprobe_bin,
             "-v", "error",
             "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1",
@@ -79,9 +84,10 @@ class VideoService:
         """
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         duration = end - start
+        ffmpeg_bin = os.path.normpath(getattr(settings, "FFMPEG_PATH", "ffmpeg"))
 
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-ss", str(start),
             "-i", video_path,
             "-t", str(duration),

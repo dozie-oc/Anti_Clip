@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     LLM_MAX_CLIPS: int = 10
 
     # ── Whisper Configuration ──────────────────────────────────────────────
+    # Video/Audio processing
+    FFMPEG_PATH: str = "ffmpeg"
+    FFPROBE_PATH: str = "ffprobe"
     WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
 
     # ── Clip defaults ──────────────────────────────────────────────────────
