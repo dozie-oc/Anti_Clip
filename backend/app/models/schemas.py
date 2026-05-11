@@ -61,6 +61,7 @@ class ProjectResponse(BaseModel):
     filepath: str
     file_size: int
     prompt: str
+    clip_mode: str = "short"
     status: str
     processing_stage: Optional[str] = None
     progress: int

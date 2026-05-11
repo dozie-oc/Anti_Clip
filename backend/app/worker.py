@@ -4,7 +4,7 @@ Background worker — runs the full AI clipping pipeline in a separate thread.
 Pipeline stages:
   1. audio_extraction  — FFmpeg extracts audio from video
   2. transcription     — Whisper transcribes audio to timestamped segments
-  3. llm_analysis      — LLM scores segments against user prompt
+  3. llm_analysis      — LLM scores segments against user prompt (mode-aware)
   4. clip_generation   — FFmpeg cuts top-scoring segments into clips
 """
 import logging
@@ -18,7 +18,7 @@ from app.models.project import Project
 from app.models.job import Job
 from app.services.video_service import video_service
 from app.services.transcription_service import transcription_service
-from app.services.clip_engine import clip_engine
+from app.services.clip_engine import clip_engine, get_mode_profile
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +49,10 @@ def process_video_job(project_id: str, db: Session):
         logger.error(f"Job or project not found for {project_id}")
         return
 
+    # Read clip mode from project (default "short" for older projects)
+    clip_mode = getattr(project, "clip_mode", "short") or "short"
+    profile = get_mode_profile(clip_mode)
+
     try:
         # ── Mark running ──────────────────────────────────────────────────
         _update_job(db, job,
@@ -63,6 +67,8 @@ def process_video_job(project_id: str, db: Session):
             processing_stage="audio_extraction",
             progress=5,
         )
+
+        logger.info(f"[{project_id}] Pipeline started (mode={clip_mode})")
 
         # ── Stage 1: Extract audio ───────────────────────────────────────
         logger.info(f"[{project_id}] Stage 1: Audio extraction")
@@ -89,7 +95,11 @@ def process_video_job(project_id: str, db: Session):
             progress=30,
         )
 
-        segments = transcription_service.transcribe_and_split(audio_path)
+        # Use mode-aware segment duration
+        target_duration = profile["segment_duration"]
+        segments = transcription_service.transcribe_and_split(
+            audio_path, target_duration=target_duration
+        )
 
         # Store transcript on project
         transcript_data = [
@@ -99,22 +109,24 @@ def process_video_job(project_id: str, db: Session):
         _update_project(db, project, transcript=transcript_data, progress=50)
         _update_job(db, job,
             progress=50,
-            stage_detail=f"Transcription complete — {len(segments)} segments",
+            stage_detail=f"Transcription complete — {len(segments)} segments (~{target_duration}s each)",
         )
 
         # ── Stage 3: LLM Analysis ───────────────────────────────────────
-        logger.info(f"[{project_id}] Stage 3: LLM scoring")
+        logger.info(f"[{project_id}] Stage 3: LLM scoring (mode={clip_mode})")
         _update_job(db, job,
             progress=55,
             stage="llm_analysis",
-            stage_detail="Analyzing segments with AI...",
+            stage_detail=f"Analyzing segments with AI ({clip_mode} mode)...",
         )
         _update_project(db, project,
             processing_stage="llm_analysis",
             progress=55,
         )
 
-        clips_metadata = clip_engine.select_clips(segments, project.prompt)
+        clips_metadata = clip_engine.select_clips(
+            segments, project.prompt, clip_mode=clip_mode
+        )
 
         _update_job(db, job,
             progress=70,
@@ -136,7 +148,7 @@ def process_video_job(project_id: str, db: Session):
 
         output_dir = os.path.join("storage", "clips", project_id)
         generated_clips = clip_engine.generate_clips(
-            project.filepath, clips_metadata, output_dir
+            project.filepath, clips_metadata, output_dir, clip_mode=clip_mode
         )
 
         # Add URL paths for frontend access
@@ -154,7 +166,7 @@ def process_video_job(project_id: str, db: Session):
             state="completed",
             progress=100,
             stage="completed",
-            stage_detail=f"Done — {len(generated_clips)} clips generated",
+            stage_detail=f"Done — {len(generated_clips)} clips generated ({clip_mode} mode)",
             finished_at=datetime.utcnow(),
         )
 
@@ -163,7 +175,7 @@ def process_video_job(project_id: str, db: Session):
             os.remove(audio_path)
             logger.info(f"Cleaned up temp audio: {audio_path}")
 
-        logger.info(f"[{project_id}] Pipeline complete — {len(generated_clips)} clips")
+        logger.info(f"[{project_id}] Pipeline complete — {len(generated_clips)} clips ({clip_mode} mode)")
 
     except Exception as e:
         logger.exception(f"Pipeline failed for project {project_id}: {e}")

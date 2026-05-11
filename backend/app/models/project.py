@@ -16,6 +16,7 @@ class Project(Base):
     filepath = Column(String, nullable=False)
     file_size = Column(Integer, default=0)
     prompt = Column(Text, nullable=False)
+    clip_mode = Column(String, default="short")  # "short" or "long"
     status = Column(String, default="pending")  # pending, processing, completed, failed
     processing_stage = Column(String, nullable=True)  # audio_extraction, transcription, llm_analysis, clip_generation
     progress = Column(Integer, default=0)

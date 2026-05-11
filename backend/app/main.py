@@ -35,16 +35,27 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created")
 
+    # Auto-migrate: add clip_mode column if missing (for existing DBs)
+    from sqlalchemy import inspect as sa_inspect, text
+    inspector = sa_inspect(engine)
+    columns = [c["name"] for c in inspector.get_columns("projects")]
+    if "clip_mode" not in columns:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE projects ADD COLUMN clip_mode VARCHAR DEFAULT 'short'"))
+            conn.commit()
+        logger.info("Migrated: added clip_mode column to projects table")
+
     # Ensure storage directories
     for d in [settings.UPLOAD_DIR, settings.CLIPS_DIR, settings.TEMP_DIR]:
         os.makedirs(d, exist_ok=True)
     logger.info("Storage directories ready")
 
     # Log LLM status
-    if settings.OPENAI_API_KEY:
+    if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.strip():
         logger.info(f"LLM: OpenAI ({settings.LLM_MODEL_NAME})")
     else:
-        logger.info("LLM: Fallback heuristic mode (set OPENAI_API_KEY for AI scoring)")
+        logger.info(f"LLM: Checking Ollama at {settings.OLLAMA_BASE_URL} ({settings.OLLAMA_MODEL})...")
+        # The actual provider check happens lazily on first use
 
     yield
 

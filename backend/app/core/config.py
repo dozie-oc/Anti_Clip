@@ -32,8 +32,13 @@ class Settings(BaseSettings):
     LLM_SCORE_THRESHOLD: int = 6  # minimum score to select a segment
     LLM_MAX_CLIPS: int = 10
 
-    # ── Whisper Configuration ──────────────────────────────────────────────
-    # Video/Audio processing
+    # ── Ollama Configuration ──────────────────────────────────────────────
+    OLLAMA_BASE_URL: str = "http://localhost:11434"
+    OLLAMA_MODEL: str = "qwen2.5-coder:7b"
+    OLLAMA_CPU_ONLY: bool = False   # set True to force CPU-only inference
+    OLLAMA_TIMEOUT: int = 120       # seconds per batch request
+
+    # ── Video / Audio processing ──────────────────────────────────────────
     FFMPEG_PATH: str = "ffmpeg"
     FFPROBE_PATH: str = "ffprobe"
     WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
