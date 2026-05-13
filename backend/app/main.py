@@ -44,6 +44,7 @@ async def lifespan(app: FastAPI):
     proj_migrations = {
         "clip_mode": "ALTER TABLE projects ADD COLUMN clip_mode VARCHAR DEFAULT 'short'",
         "processing_mode": "ALTER TABLE projects ADD COLUMN processing_mode VARCHAR DEFAULT 'clips'",
+        "narration_script": "ALTER TABLE projects ADD COLUMN narration_script TEXT",
     }
     for col, sql in proj_migrations.items():
         if col not in proj_cols:

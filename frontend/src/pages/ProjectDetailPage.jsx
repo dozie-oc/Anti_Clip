@@ -3,16 +3,18 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Play, Download, Loader, CheckCircle, AlertCircle,
   Clock, Zap, FileAudio, Brain, Scissors, RotateCcw, Sparkles, Star,
-  ChevronDown, ChevronUp
+  ChevronDown, ChevronUp, Mic2, FileText, Type
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { fetchProject, startProcessing, resetProject, getClipUrl } from '@/services/api'
+import { fetchProject, startProcessing, stopProcessing, resetProject, getClipUrl } from '@/services/api'
+import { Square } from 'lucide-react'
+
 
 const STAGE_STEPS = [
-  { key: 'audio_extraction', icon: FileAudio,  label: 'Audio Extraction',  desc: 'Extracting audio track via FFmpeg' },
-  { key: 'transcription',    icon: Brain,       label: 'Transcription',     desc: 'Transcribing speech with Whisper AI' },
-  { key: 'llm_analysis',     icon: Sparkles,    label: 'AI Analysis',       desc: 'Scoring segments with LLM' },
-  { key: 'clip_generation',  icon: Scissors,    label: 'Clip Generation',   desc: 'Cutting top clips via FFmpeg' },
+  { key: 'processing',    icon: FileAudio, label: 'Preparation',    desc: 'Audio & Scene Detection' },
+  { key: 'transcribing', icon: Brain,     label: 'Transcription',   desc: 'Whisper AI Speech-to-Text' },
+  { key: 'analyzing',    icon: Sparkles,  label: 'AI Analysis',     desc: 'Ollama Intelligence' },
+  { key: 'clipping',     icon: Scissors,  label: 'Final Render',    desc: 'Generating Output' },
 ]
 
 export default function ProjectDetailPage() {
@@ -24,7 +26,6 @@ export default function ProjectDetailPage() {
   const [showTranscript, setShowTranscript] = useState(false)
   const pollRef = useRef(null)
 
-  // ── Fetch project ──────────────────────────────────────────────────────
   const load = async () => {
     try {
       const data = await fetchProject(id)
@@ -37,9 +38,8 @@ export default function ProjectDetailPage() {
     }
   }
 
-  useEffect(() => { load() }, [id]) // eslint-disable-line
+  useEffect(() => { load() }, [id])
 
-  // Poll while processing
   useEffect(() => {
     if (project?.status === 'processing') {
       pollRef.current = setInterval(async () => {
@@ -49,7 +49,7 @@ export default function ProjectDetailPage() {
           if (data.status !== 'processing') {
             clearInterval(pollRef.current)
             if (data.status === 'completed') {
-              toast.success(`Done! ${data.clips?.length || 0} clips generated.`)
+              toast.success('AI Processing Complete!')
             }
           }
         } catch { /* silent */ }
@@ -58,13 +58,17 @@ export default function ProjectDetailPage() {
     return () => clearInterval(pollRef.current)
   }, [project?.status, id])
 
-  // ── Start processing ──────────────────────────────────────────────────
   const handleProcess = async () => {
     setProcessing(true)
     try {
-      await startProcessing(id)
-      toast.success('Processing started!')
-      setProject((p) => ({ ...p, status: 'processing', progress: 0, processing_stage: 'queued' }))
+      const config = {
+        prompt: project.prompt,
+        processing_mode: project.processing_mode,
+        clip_mode: project.clip_mode,
+      }
+      await startProcessing(id, config)
+      toast.success('Pipeline started!')
+      setProject((p) => ({ ...p, status: 'processing', progress: 0, processing_stage: 'processing' }))
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -76,122 +80,101 @@ export default function ProjectDetailPage() {
     try {
       const data = await resetProject(id)
       setProject(data)
-      toast.success('Project reset — ready to reprocess')
+      toast.success('Ready to reprocess')
     } catch (err) {
       toast.error(err.message)
     }
   }
 
-  // ── Loading state ─────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader size={32} className="text-accent animate-spin" />
-      </div>
-    )
+  const handleStop = async () => {
+    if (!window.confirm('Are you sure you want to stop processing?')) return
+    try {
+      await stopProcessing(id)
+      toast.success('Stop signal sent')
+      // Immediate update to show it's stopping
+      setProject((p) => ({ ...p, status: 'pending', processing_stage: null }))
+    } catch (err) {
+      toast.error(err.message)
+    }
   }
 
+
+  if (loading) return <div className="flex items-center justify-center h-64"><Loader className="text-accent animate-spin" /></div>
   if (!project) return null
 
   const currentStageIdx = STAGE_STEPS.findIndex((s) => s.key === project.processing_stage)
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Back + Header */}
-      <button
-        onClick={() => navigate('/projects')}
-        className="btn-ghost flex items-center gap-1.5 -ml-3 text-sm"
-      >
-        <ArrowLeft size={16} /> Back to Projects
-      </button>
-
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-ink-primary">
-            {project.name || project.original_filename}
-          </h1>
-          <p className="text-ink-secondary text-sm mt-1 max-w-lg">
-            "{project.prompt}"
-          </p>
+    <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <button onClick={() => navigate('/projects')} className="text-accent-light text-sm flex items-center gap-1 hover:underline mb-2">
+            <ArrowLeft size={14} /> Back
+          </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-bold text-ink-primary">{project.name}</h1>
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${project.processing_mode === 'clips' ? 'bg-accent/20 text-accent-light' : 'bg-purple-500/20 text-purple-400'}`}>
+              {project.processing_mode === 'clips' ? 'Viral Clips' : 'Narration'}
+            </span>
+          </div>
+          <p className="text-ink-secondary italic">"{project.prompt}"</p>
         </div>
 
-        {/* Action buttons */}
-        <div className="flex gap-2 shrink-0">
+        <div className="flex gap-3">
           {project.status === 'pending' && (
-            <button
-              onClick={handleProcess}
-              disabled={processing}
-              className="btn-primary flex items-center gap-2"
-            >
-              {processing ? (
-                <Loader size={16} className="animate-spin" />
-              ) : (
-                <Zap size={16} />
-              )}
-              Start Processing
+            <button onClick={handleProcess} disabled={processing} className="btn-primary flex items-center gap-2 px-6">
+              {processing ? <Loader size={18} className="animate-spin" /> : <Zap size={18} />}
+              Start AI Pipeline
             </button>
           )}
           {(project.status === 'completed' || project.status === 'failed') && (
             <button onClick={handleReset} className="btn-secondary flex items-center gap-2">
-              <RotateCcw size={16} />
-              Reprocess
+              <RotateCcw size={18} /> Reprocess
             </button>
           )}
         </div>
       </div>
 
-      {/* Processing pipeline stages */}
+      {/* Progress View */}
       {project.status === 'processing' && (
-        <div className="glass-card p-6 animate-slide-up">
-          <h2 className="section-title mb-4 flex items-center gap-2">
-            <Loader size={18} className="text-accent animate-spin" />
-            Processing Pipeline
-          </h2>
-
-          {/* Progress bar */}
-          <div className="mb-6">
-            <div className="flex justify-between text-sm mb-2">
-              <span className="text-ink-secondary">Overall progress</span>
-              <span className="font-semibold text-accent-light">{project.progress}%</span>
+        <div className="glass-card p-8 space-y-8 border-accent/20 shadow-glow">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-accent/10 flex items-center justify-center">
+                <Loader size={20} className="text-accent animate-spin" />
+              </div>
+              <div>
+                <h2 className="text-lg font-bold">AI is thinking...</h2>
+                <p className="text-sm text-ink-secondary">Currently: {STAGE_STEPS.find(s => s.key === project.processing_stage)?.label}</p>
+              </div>
             </div>
-            <div className="w-full h-2.5 bg-surface rounded-full overflow-hidden">
-              <div
-                className="h-full bg-gradient-accent rounded-full transition-all duration-700 ease-out"
-                style={{ width: `${project.progress}%` }}
-              />
+            
+            <div className="flex items-center gap-6">
+              <span className="text-2xl font-bold text-accent-light">{project.progress}%</span>
+              <button 
+                onClick={handleStop}
+                className="flex items-center gap-2 text-xs font-bold text-ink-muted hover:text-red-400 transition-colors uppercase tracking-widest bg-white/5 px-3 py-1.5 rounded-lg border border-white/10"
+              >
+                <Square size={12} fill="currentColor" /> Stop
+              </button>
             </div>
           </div>
 
-          {/* Stage indicators */}
-          <div className="grid grid-cols-4 gap-3">
+
+          <div className="w-full h-3 bg-surface rounded-full overflow-hidden p-0.5 border border-white/5">
+            <div className="h-full bg-gradient-accent rounded-full transition-all duration-1000" style={{ width: `${project.progress}%` }} />
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {STAGE_STEPS.map((step, i) => {
               const isActive = step.key === project.processing_stage
               const isDone = currentStageIdx > i || project.status === 'completed'
               const Icon = step.icon
-
               return (
-                <div
-                  key={step.key}
-                  className={`
-                    p-3 rounded-lg text-center transition-all duration-300
-                    ${isActive ? 'bg-accent/15 border border-accent/30 scale-[1.02]' : ''}
-                    ${isDone ? 'bg-success/10 border border-success/20' : ''}
-                    ${!isActive && !isDone ? 'bg-surface/50 border border-transparent' : ''}
-                  `}
-                >
-                  <div className="flex justify-center mb-2">
-                    {isDone ? (
-                      <CheckCircle size={20} className="text-success" />
-                    ) : isActive ? (
-                      <Icon size={20} className="text-accent-light animate-pulse" />
-                    ) : (
-                      <Icon size={20} className="text-ink-muted" />
-                    )}
-                  </div>
-                  <p className={`text-xs font-semibold ${isActive ? 'text-accent-light' : isDone ? 'text-success' : 'text-ink-muted'}`}>
-                    {step.label}
-                  </p>
-                  <p className="text-[10px] text-ink-muted mt-0.5">{step.desc}</p>
+                <div key={step.key} className={`p-4 rounded-xl border transition-all ${isActive ? 'bg-accent/10 border-accent/40 shadow-glow' : isDone ? 'bg-success/5 border-success/30' : 'bg-surface/50 border-transparent opacity-40'}`}>
+                  <Icon size={20} className={`mb-2 ${isActive ? 'text-accent-light animate-pulse' : isDone ? 'text-success' : ''}`} />
+                  <p className="text-sm font-bold">{step.label}</p>
                 </div>
               )
             })}
@@ -199,146 +182,92 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      {/* Error state */}
-      {project.status === 'failed' && project.error_message && (
-        <div className="glass-card p-5 border-danger/30 bg-danger/5 animate-slide-up">
-          <div className="flex items-start gap-3">
-            <AlertCircle size={20} className="text-danger shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-semibold text-danger">Processing Failed</h3>
-              <p className="text-sm text-ink-secondary mt-1">{project.error_message}</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Completed — clip results */}
-      {project.status === 'completed' && project.clips?.length > 0 && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="section-title flex items-center gap-2">
-              <Scissors size={18} className="text-accent-light" />
-              Generated Clips ({project.clips.length})
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {project.clips.map((clip, i) => (
-              <div key={clip.id} className="glass-card overflow-hidden group">
-                {/* Video player */}
-                <div className="relative bg-black aspect-video">
-                  <video
-                    controls
-                    preload="metadata"
-                    className="w-full h-full object-contain"
-                    src={clip.url || getClipUrl(id, clip.filename)}
-                  >
-                    Your browser does not support video playback.
-                  </video>
+      {/* Results View */}
+      {project.status === 'completed' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          
+          {/* Main Content (Clips or Script) */}
+          <div className="lg:col-span-2 space-y-6">
+            {project.processing_mode === 'narration_summary' ? (
+              <div className="glass-card p-8 space-y-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <Type size={24} className="text-purple-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold">Narration Script</h2>
+                    <p className="text-sm text-ink-secondary">Generated summary recap</p>
+                  </div>
                 </div>
-
-                {/* Clip info */}
-                <div className="p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-semibold text-ink-primary text-sm">
-                      Clip {i + 1}
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {clip.score && (
-                        <span className="flex items-center gap-1 text-xs font-semibold text-warning">
-                          <Star size={12} fill="currentColor" />
-                          {clip.score}/10
-                        </span>
-                      )}
-                      <span className="text-xs text-ink-muted">
-                        {clip.duration?.toFixed(1)}s
-                      </span>
-                    </div>
-                  </div>
-
-                  <p className="text-xs text-ink-secondary line-clamp-2">
-                    {clip.text}
-                  </p>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <span className="text-[10px] text-ink-muted">
-                      {clip.start?.toFixed(1)}s — {clip.end?.toFixed(1)}s
-                    </span>
-                    <a
-                      href={clip.url || getClipUrl(id, clip.filename)}
-                      download={clip.filename}
-                      className="btn-ghost flex items-center gap-1 text-xs py-1.5 px-2.5 text-accent-light"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Download size={13} />
-                      Download
-                    </a>
-                  </div>
+                <div className="p-6 bg-black/30 rounded-xl font-serif text-lg leading-relaxed whitespace-pre-wrap text-ink-primary border border-white/5">
+                  {project.narration_script || "Script not found."}
                 </div>
               </div>
-            ))}
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {project.clips?.map((clip, i) => (
+                  <div key={clip.id} className="glass-card overflow-hidden group border-white/5 hover:border-accent/30 transition-all">
+                    <div className="aspect-[9/16] bg-black relative">
+                      <video src={clip.url || getClipUrl(id, clip.filename)} controls className="w-full h-full object-contain" />
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-accent-light">Clip {i+1}</span>
+                        <div className="flex gap-2">
+                          {clip.score && <span className="text-xs bg-warning/20 text-warning px-2 py-0.5 rounded flex items-center gap-1"><Star size={10} fill="currentColor" /> {clip.score}</span>}
+                        </div>
+                      </div>
+                      <p className="text-sm text-ink-secondary line-clamp-2 italic">"{clip.text}"</p>
+                      <div className="flex items-center justify-between pt-2 border-t border-white/5">
+                        <span className="text-[10px] text-ink-muted uppercase">{clip.duration?.toFixed(1)}s Duration</span>
+                        <a href={clip.url} download className="text-accent-light hover:underline text-xs flex items-center gap-1"><Download size={12}/> Download</a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
 
-      {/* Completed with no clips */}
-      {project.status === 'completed' && (!project.clips || project.clips.length === 0) && (
-        <div className="glass-card p-12 text-center">
-          <Scissors size={32} className="text-ink-muted mx-auto mb-3" />
-          <h3 className="font-semibold text-ink-primary">No clips generated</h3>
-          <p className="text-sm text-ink-secondary mt-1">
-            Try adjusting your prompt or lowering the score threshold
-          </p>
-        </div>
-      )}
-
-      {/* Transcript (collapsible) */}
-      {project.transcript && project.transcript.length > 0 && (
-        <div className="glass-card overflow-hidden">
-          <button
-            onClick={() => setShowTranscript(!showTranscript)}
-            className="w-full px-5 py-4 flex items-center justify-between hover:bg-hover/50 transition-colors"
-          >
-            <span className="section-title flex items-center gap-2">
-              <Brain size={18} className="text-accent-light" />
-              Transcript ({project.transcript.length} segments)
-            </span>
-            {showTranscript ? <ChevronUp size={18} className="text-ink-muted" /> : <ChevronDown size={18} className="text-ink-muted" />}
-          </button>
-
-          {showTranscript && (
-            <div className="px-5 pb-5 space-y-2 max-h-96 overflow-y-auto border-t border-border">
-              {project.transcript.map((seg, i) => (
-                <div key={i} className="flex gap-3 py-2 border-b border-border/50 last:border-0">
-                  <span className="text-[10px] text-ink-muted font-mono shrink-0 w-24 pt-0.5">
-                    {seg.start?.toFixed(1)}s – {seg.end?.toFixed(1)}s
-                  </span>
-                  <p className="text-sm text-ink-secondary">{seg.text}</p>
+          {/* Sidebar / Metadata */}
+          <div className="space-y-6">
+             <div className="glass-card p-6 space-y-4">
+                <h3 className="font-bold flex items-center gap-2"><FileText size={16}/> Project Info</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm"><span className="text-ink-muted">Created</span><span className="text-ink-secondary">{new Date(project.created_at).toLocaleDateString()}</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-ink-muted">File Size</span><span className="text-ink-secondary">{(project.file_size / (1024 * 1024)).toFixed(1)} MB</span></div>
+                  <div className="flex justify-between text-sm"><span className="text-ink-muted">Provider</span><span className="text-ink-secondary">Ollama (qwen2.5)</span></div>
                 </div>
-              ))}
-            </div>
-          )}
+             </div>
+
+             <button 
+              onClick={() => setShowTranscript(!showTranscript)}
+              className="w-full glass-card p-4 flex items-center justify-between hover:bg-hover transition-all"
+             >
+                <span className="font-bold flex items-center gap-2"><Brain size={16}/> View Transcript</span>
+                {showTranscript ? <ChevronUp size={16}/> : <ChevronDown size={16}/>}
+             </button>
+
+             {showTranscript && (
+               <div className="glass-card p-4 max-h-96 overflow-y-auto space-y-3 animate-slide-up">
+                 {project.transcript?.map((seg, i) => (
+                   <div key={i} className="text-xs border-l-2 border-accent/30 pl-3 py-1">
+                      <span className="text-ink-muted block mb-1">{seg.start.toFixed(1)}s</span>
+                      <p className="text-ink-secondary">{seg.text}</p>
+                   </div>
+                 ))}
+               </div>
+             )}
+          </div>
         </div>
       )}
 
-      {/* Pending state CTA */}
-      {project.status === 'pending' && (
-        <div className="glass-card p-12 text-center animate-slide-up">
-          <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center mx-auto mb-4">
-            <Zap size={28} className="text-accent-light" />
-          </div>
-          <h3 className="text-lg font-semibold text-ink-primary mb-1">Ready to Process</h3>
-          <p className="text-ink-secondary text-sm mb-6 max-w-sm mx-auto">
-            Your video is uploaded. Click below to start the AI clipping pipeline.
-          </p>
-          <button
-            onClick={handleProcess}
-            disabled={processing}
-            className="btn-primary flex items-center gap-2 mx-auto"
-          >
-            {processing ? <Loader size={16} className="animate-spin" /> : <Zap size={16} />}
-            Start Processing
-          </button>
+      {/* Empty State */}
+      {project.status === 'completed' && !project.clips?.length && !project.narration_script && (
+        <div className="glass-card p-20 text-center space-y-4">
+          <Sparkles size={48} className="mx-auto text-ink-muted" />
+          <h2 className="text-2xl font-bold">No results found</h2>
+          <p className="text-ink-secondary max-w-sm mx-auto">The AI couldn't find moments matching your prompt. Try reprocessing with a broader prompt.</p>
         </div>
       )}
     </div>

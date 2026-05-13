@@ -1,6 +1,7 @@
 """Process route — start the AI clipping pipeline for a project."""
 from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
+from datetime import datetime
 
 from app.database import get_db, SessionLocal
 from app.models.project import Project
@@ -60,3 +61,35 @@ async def start_processing_route(
         project_id=project_id,
         job_id=job.id,
     )
+
+
+@router.post("/projects/{project_id}/stop")
+async def stop_processing_route(
+    project_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Stop a running processing pipeline.
+    """
+    project = db.query(Project).filter(Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    if project.status != "processing":
+        return {"message": "Project is not currently processing.", "project_id": project_id}
+
+    # Set status to something else to trigger cancellation in worker
+    project.status = "pending"
+    project.processing_stage = None
+    project.progress = 0
+    
+    # Also find the running job and mark it
+    job = db.query(Job).filter(Job.project_id == project_id, Job.state == "running").first()
+    if job:
+        job.state = "failed"
+        job.error = "Stopped by user"
+        job.finished_at = datetime.utcnow()
+
+    db.commit()
+    return {"message": "Processing stop signal sent.", "project_id": project_id}
+

@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "qwen2.5-coder:7b"
     OLLAMA_CPU_ONLY: bool = False   # set True to force CPU-only inference
-    OLLAMA_TIMEOUT: int = 120       # seconds per batch request
+    OLLAMA_TIMEOUT: int = 1200      # 20 minutes (needed for full movie/episode summaries on CPU)
 
     # ── Whisper Configuration ──────────────────────────────────────────────
     FFMPEG_PATH: str = "ffmpeg"
@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     WHISPER_MODEL: str = "base"
 
     # ── TTS Configuration ──────────────────────────────────────────────────
-    PIPER_VOICE: str = "en_US-lessac-medium"
+    PIPER_VOICE: str = "en-us-lessac-medium"
     PIPER_MODELS_DIR: str = "storage/models/piper"  # tiny, base, small, medium, large
 
     # ── Clip defaults ──────────────────────────────────────────────────────

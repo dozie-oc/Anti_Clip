@@ -4,7 +4,9 @@ import {
   ListVideo, Loader, CheckCircle, AlertCircle, Clock,
   FileAudio, Brain, Sparkles, Scissors
 } from 'lucide-react'
-import { fetchProjects } from '@/services/api'
+import { fetchProjects, stopProcessing } from '@/services/api'
+import { Square } from 'lucide-react'
+
 import toast from 'react-hot-toast'
 
 const STAGE_ICONS = {
@@ -40,6 +42,19 @@ export default function QueuePage() {
     pollRef.current = setInterval(load, 3000)
     return () => clearInterval(pollRef.current)
   }, [])
+
+  const handleStop = async (e, id) => {
+    e.stopPropagation()
+    if (!window.confirm('Are you sure you want to stop processing?')) return
+    try {
+      await stopProcessing(id)
+      toast.success('Stop signal sent')
+      load()
+    } catch (err) {
+      toast.error(err.message)
+    }
+  }
+
 
   const processingJobs = projects.filter((p) => p.status === 'processing')
   const recentCompleted = projects.filter((p) => p.status === 'completed').slice(0, 5)
@@ -87,13 +102,23 @@ export default function QueuePage() {
                   <h3 className="font-semibold text-ink-primary">
                     {project.name || project.original_filename}
                   </h3>
-                  <div className="flex items-center gap-2 text-sm text-accent-light">
-                    <StageIcon size={14} className="animate-pulse" />
-                    <span className="capitalize">
-                      {project.processing_stage?.replace('_', ' ') || 'starting'}
-                    </span>
+                  <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2 text-sm text-accent-light">
+                      <StageIcon size={14} className="animate-pulse" />
+                      <span className="capitalize">
+                        {project.processing_stage?.replace('_', ' ') || 'starting'}
+                      </span>
+                    </div>
+                    <button 
+                      onClick={(e) => handleStop(e, project.id)}
+                      className="p-1.5 rounded bg-white/5 hover:bg-red-500/20 text-ink-muted hover:text-red-400 transition-all border border-white/10"
+                      title="Stop Job"
+                    >
+                      <Square size={12} fill="currentColor" />
+                    </button>
                   </div>
                 </div>
+
 
                 <div className="w-full h-2 bg-surface rounded-full overflow-hidden">
                   <div

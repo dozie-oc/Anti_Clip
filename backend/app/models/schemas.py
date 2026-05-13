@@ -87,6 +87,7 @@ class ProjectResponse(BaseModel):
     progress: int
     error_message: Optional[str] = None
     clips: Optional[List[ClipMeta]] = []
+    narration_script: Optional[str] = None
     transcript: Optional[List[TranscriptSegment]] = None
     created_at: datetime
     updated_at: datetime

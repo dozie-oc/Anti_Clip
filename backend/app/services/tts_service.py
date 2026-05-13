@@ -30,8 +30,15 @@ class TTSService:
             config_path = os.path.join(self._models_dir, f"{self._voice_model}.onnx.json")
 
             if not os.path.exists(model_path):
-                logger.error(f"Piper model not found at {model_path}. Please download it.")
-                raise FileNotFoundError(f"Missing Piper model: {self._voice_model}")
+                logger.error(f"Piper model not found at {model_path}.")
+                logger.error("Please download the model and its .json config from: https://github.com/rhasspy/piper/releases/tag/v0.0.2")
+                logger.error(f"Place '{self._voice_model}.onnx' and '{self._voice_model}.onnx.json' in {self._models_dir}")
+                
+                # Fallback: Create a placeholder file if in DEBUG mode, or just re-raise
+                if settings.DEBUG:
+                    logger.warning("DEBUG MODE: Continuing without actual TTS (pipeline will succeed but audio will be missing)")
+                    return ""
+                raise FileNotFoundError(f"Missing Piper model: {self._voice_model}. See logs for download instructions.")
 
             logger.info(f"Synthesizing speech to {output_path}...")
             

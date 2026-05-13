@@ -317,11 +317,12 @@ class OllamaProvider(LLMProvider):
         import httpx
         system_prompt = NARRATION_SYSTEM_PROMPT.format(target_minutes=target_minutes)
         
+        truncated_text = self._truncate_transcript(full_transcript)
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Transcript:\n{full_transcript}"},
+                {"role": "user", "content": f"Transcript:\n{truncated_text}"},
             ],
             "stream": False,
             "options": {"temperature": 0.7, "num_ctx": 16384},
@@ -330,6 +331,14 @@ class OllamaProvider(LLMProvider):
         r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
         r.raise_for_status()
         return r.json()["message"]["content"].strip()
+
+    def _truncate_transcript(self, text: str, max_words: int = 6000) -> str:
+        """Truncates transcript to fit within reasonable LLM context windows."""
+        words = text.split()
+        if len(words) <= max_words:
+            return text
+        logger.warning(f"Transcript too long ({len(words)} words), truncating to {max_words} for LLM.")
+        return " ".join(words[:max_words//2]) + "\n... [TRUNCATED] ...\n" + " ".join(words[-max_words//2:])
 
 
 # ═══════════════════════════════════════════════════════════════════════════

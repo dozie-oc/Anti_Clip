@@ -34,6 +34,16 @@ def _update_project(db: Session, project: Project, **kwargs):
     db.refresh(project)
 
 
+def _check_cancellation(db: Session, project_id: str):
+    """Raise InterruptedError if project status is no longer 'processing'."""
+    db.expire_all()  # Force refresh from DB
+    p = db.query(Project).filter(Project.id == project_id).first()
+    if not p or p.status != "processing":
+        logger.info(f"[{project_id}] Cancellation detected (status={p.status if p else 'deleted'})")
+        raise InterruptedError("Processing stopped by user or project deleted.")
+
+
+
 def process_video_job(project_id: str, db: Session):
     job = db.query(Job).filter(Job.project_id == project_id).order_by(Job.started_at.desc()).first()
     project = db.query(Project).filter(Project.id == project_id).first()
@@ -52,15 +62,21 @@ def process_video_job(project_id: str, db: Session):
         # Audio + Scenes
         audio_path = os.path.join("storage", "temp", f"{project_id}.wav")
         video_service.extract_audio(project.filepath, audio_path)
+        _check_cancellation(db, project_id)
         scenes = scene_service.detect_scenes(project.filepath)
+        _check_cancellation(db, project_id)
+
 
         # ── Stage 2: Transcribing ────────────────────────────────────────
         _update_job(db, job, stage="transcribing", progress=30, stage_detail="Transcribing and aligning...")
         _update_project(db, project, processing_stage="transcribing", progress=30)
         
         raw_segments = transcription_service.transcribe(audio_path)
+        _check_cancellation(db, project_id)
         segments = transcription_service.align_segments_to_scenes(raw_segments, scenes)
         _update_project(db, project, transcript=segments)
+        _check_cancellation(db, project_id)
+
 
         # ── Stage 3: Mode-specific Analysis & Generation ─────────────────
         output_dir = os.path.join("storage", "clips", project_id)
@@ -68,6 +84,7 @@ def process_video_job(project_id: str, db: Session):
 
         if mode == "narration_summary":
             _update_job(db, job, stage="analyzing", progress=55, stage_detail="Generating narration script...")
+            _update_project(db, project, processing_stage="analyzing", progress=55)
             
             # Combine all text for narration input
             full_text = " ".join([s["text"] for s in segments])
@@ -77,17 +94,21 @@ def process_video_job(project_id: str, db: Session):
                 project_id, full_text, target_min, project.filepath, output_dir
             )
             
-            # Update job with the script
-            _update_job(db, job, narration_script=summary_results[0]["script"])
+            # Update project and job with the script
+            script_text = summary_results[0]["script"]
+            project.narration_script = script_text
+            _update_job(db, job, narration_script=script_text)
             
             # In narration mode, 'clips' are the generated summaries
             generated_clips = summary_results
         else:
             # CLIPS MODE
             _update_job(db, job, stage="analyzing", progress=55, stage_detail="Scoring viral clips...")
+            _update_project(db, project, processing_stage="analyzing", progress=55)
             clips_metadata = clip_engine.select_clips(segments, project.prompt, clip_mode=project.clip_mode)
             
             _update_job(db, job, stage="clipping", progress=75, stage_detail="Rendering vertical clips...")
+            _update_project(db, project, processing_stage="clipping", progress=75)
             generated_clips = clip_engine.generate_clips(
                 project.filepath, clips_metadata, output_dir, clip_mode=project.clip_mode
             )
@@ -104,10 +125,16 @@ def process_video_job(project_id: str, db: Session):
         if os.path.exists(audio_path):
             os.remove(audio_path)
 
+    except InterruptedError as e:
+        logger.info(f"Pipeline stopped: {e}")
+        # Job and project status should already be handled by the stopper, 
+        # but we'll ensure the job is marked as failed/stopped.
+        _update_job(db, job, state="failed", error="Stopped by user", finished_at=datetime.utcnow())
     except Exception as e:
         logger.exception(f"Pipeline failed: {e}")
         _update_project(db, project, status="failed", error_message=str(e), processing_stage=None)
         _update_job(db, job, state="failed", error=str(e), finished_at=datetime.utcnow())
+
 
 
 def start_processing(project_id: str, db_factory):

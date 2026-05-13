@@ -6,6 +6,17 @@ from typing import List, Dict, Any, Tuple
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+# ═══════════════════════════════════════════════════════════════════════════
+# MONKEYPATCH: Fix GPT2Tokenizer attribute error in certain transformers versions
+# ═══════════════════════════════════════════════════════════════════════════
+try:
+    from transformers import GPT2Tokenizer
+    if not hasattr(GPT2Tokenizer, "additional_special_tokens"):
+        logger.info("Monkeypatching GPT2Tokenizer.additional_special_tokens")
+        GPT2Tokenizer.additional_special_tokens = []
+except ImportError:
+    pass
+# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TranscriptionService:
@@ -37,7 +48,9 @@ class TranscriptionService:
         model = self._load_model()
         logger.info(f"Transcribing: {audio_path}")
 
-        result = model.transcribe(audio_path, verbose=False)
+        import torch
+        use_fp16 = torch.cuda.is_available()
+        result = model.transcribe(audio_path, verbose=False, fp16=use_fp16)
         raw_segments = result.get("segments", [])
 
         logger.info(f"Transcription complete: {len(raw_segments)} raw segments")

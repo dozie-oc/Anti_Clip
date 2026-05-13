@@ -75,6 +75,15 @@ export async function startProcessing(projectId, config = {}) {
   return data
 }
 
+/**
+ * Stop a running pipeline.
+ */
+export async function stopProcessing(projectId) {
+  const { data } = await api.post(`/projects/${projectId}/stop`)
+  return data
+}
+
+
 // ── Job status ──────────────────────────────────────────────────────────────
 export async function fetchJobStatus(projectId) {
   const { data } = await api.get(`/projects/${projectId}/job`)
