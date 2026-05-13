@@ -23,37 +23,47 @@ logger = logging.getLogger(__name__)
 
 SHORT_SYSTEM_PROMPT = """You are an elite short-form video editor who creates viral TikTok, YouTube Shorts, and Instagram Reels.
 
-Your task: score each transcript segment from 1-10 based on its potential as a SHORT viral clip (15-60 seconds).
+Your task: analyze each transcript segment and provide structured metrics for its potential as a viral clip (15-60 seconds).
 
-Scoring rubric (evaluate as a composite):
-• Hook Strength — Can the first 3-5 seconds grab attention instantly?
-• Emotional Intensity — Surprise, humor, shock, awe, controversy, or raw emotion?
-• Shareability — Would someone tag a friend or repost this?
-• Pacing & Energy — Fast, dynamic, high-energy delivery?
-• Visual Potential — Implies action, strong reactions, expressive moments?
+For each segment, provide:
+• score (1-10): Overall viral potential.
+• hook_strength (1-10): Can the first 3 seconds grab attention?
+• emotional_intensity (1-10): Level of surprise, humor, shock, or raw emotion.
+• engagement_reason: 1-sentence explanation of why this segment is "the moment".
 
-PRIORITIZE: Punchy one-liners, shocking reveals, hot takes, funny moments, emotional outbursts, unexpected twists, bold claims, confrontations.
-AVOID: Slow exposition, filler, setup without payoff, generic statements.
+PRIORITIZE: Punchy one-liners, shocking reveals, hot takes, funny moments, emotional outbursts, unexpected twists, bold claims.
+AVOID: Slow exposition, filler, generic statements.
 
-Return ONLY valid JSON. No markdown fences, no explanation.
-Format: {"scores": [{"index": 0, "score": 8}, {"index": 1, "score": 3}]}"""
+Return ONLY valid JSON. No markdown fences.
+Format: {"scores": [{"index": 0, "score": 8, "hook_strength": 9, "emotional_intensity": 7, "engagement_reason": "..."}, ...]}"""
 
 LONG_SYSTEM_PROMPT = """You are an expert documentary and long-form content editor.
 
-Your task: score each transcript segment from 1-10 based on its potential as a LONG compelling clip (60-180 seconds).
+Your task: analyze each transcript segment and provide structured metrics for its potential as a compelling long clip (60-180 seconds).
 
-Scoring rubric (evaluate as a composite):
-• Storytelling & Narrative Arc — Does this contain a complete mini-story or coherent argument?
-• Emotional Journey — Is there buildup, tension, climax, or resolution?
-• Educational / Actionable Value — Does it teach something valuable or provide deep insight?
-• Depth & Nuance — Complex ideas, multiple perspectives, expert knowledge?
-• Shareability — Valuable enough that someone would bookmark or share it?
+For each segment, provide:
+• score (1-10): Overall storytelling value.
+• hook_strength (1-10): How well it sets up the narrative hook.
+• emotional_intensity (1-10): Depth of character or thematic resonance.
+• engagement_reason: 1-sentence explanation of its role in the story arc.
 
-PRIORITIZE: Complete stories, emotional journeys, insightful explanations, compelling arguments, "aha" moments with context, transformative advice.
-AVOID: Fragments without context, surface-level statements, repetitive points.
+PRIORITIZE: Complete stories, emotional journeys, insightful explanations, compelling arguments, transformative advice.
+AVOID: Fragments without context, surface-level statements.
 
-Return ONLY valid JSON. No markdown fences, no explanation.
-Format: {"scores": [{"index": 0, "score": 8}, {"index": 1, "score": 3}]}"""
+Return ONLY valid JSON. No markdown fences.
+Format: {"scores": [{"index": 0, "score": 8, "hook_strength": 6, "emotional_intensity": 9, "engagement_reason": "..."}, ...]}"""
+
+NARRATION_SYSTEM_PROMPT = """You are a master scriptwriter for video recaps and summaries.
+
+Your task: based on the provided video transcript, write a compelling narration script for a condensed recap video.
+
+Guidelines:
+• Tone: Engaging, concise, and professional (like a high-quality video essay).
+• Structure: Clear introduction, thematic summary of key events, and a strong conclusion.
+• Integration: Use [SCENE: start_time - end_time] markers to indicate where original video footage should play.
+• Duration: Aim for a script that fits a {target_minutes} minute summary.
+
+Return ONLY the script text with markers. No extra commentary."""
 
 
 def _get_system_prompt(clip_mode: str) -> str:
@@ -71,9 +81,11 @@ def _build_user_message(segments: List[Dict], user_prompt: str) -> str:
 
 
 def _parse_scores(raw_json: str, expected_count: int) -> List[Dict[str, Any]]:
-    """Safely parse LLM JSON response into [{index, score}, ...]."""
+    """Safely parse LLM JSON response into detailed score dicts."""
     try:
-        parsed = json.loads(raw_json)
+        # Strip potential markdown fences if model hallucinated them
+        clean_json = raw_json.strip().strip("`").replace("json\n", "")
+        parsed = json.loads(clean_json)
 
         # Handle {"scores": [...]} wrapper
         if isinstance(parsed, dict):
@@ -87,16 +99,33 @@ def _parse_scores(raw_json: str, expected_count: int) -> List[Dict[str, Any]]:
 
         scores = []
         for item in parsed:
-            if isinstance(item, dict) and "index" in item and "score" in item:
+            if isinstance(item, dict) and "index" in item:
+                # Extract and clamp scores
+                def clamp(val, default=5):
+                    try:
+                        return max(1, min(10, int(float(val))))
+                    except:
+                        return default
+
                 scores.append({
                     "index": int(item["index"]),
-                    "score": max(1, min(10, int(float(item["score"])))),
+                    "score": clamp(item.get("score")),
+                    "hook_strength": clamp(item.get("hook_strength")),
+                    "emotional_intensity": clamp(item.get("emotional_intensity")),
+                    "engagement_reason": str(item.get("engagement_reason", "No reason provided.")),
                 })
         return scores
 
     except (json.JSONDecodeError, ValueError, KeyError) as e:
         logger.error(f"Failed to parse LLM response: {e}\nRaw: {raw_json[:500]}")
-        return [{"index": i, "score": 5} for i in range(expected_count)]
+        # Return fallback for all expected segments
+        return [{
+            "index": i,
+            "score": 5,
+            "hook_strength": 5,
+            "emotional_intensity": 5,
+            "engagement_reason": "Fallback due to parsing error."
+        } for i in range(expected_count)]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -113,7 +142,16 @@ class LLMProvider(ABC):
         user_prompt: str,
         clip_mode: str = "short",
     ) -> List[Dict[str, Any]]:
-        """Score transcript segments. Returns list of {index, score}."""
+        """Score transcript segments with detailed metrics."""
+        ...
+
+    @abstractmethod
+    def generate_narration_script(
+        self,
+        full_transcript: str,
+        target_minutes: int,
+    ) -> str:
+        """Generate a narration script for recap mode."""
         ...
 
     @abstractmethod
@@ -173,6 +211,20 @@ class OpenAIProvider(LLMProvider):
                     time.sleep(2 ** attempt)
                 else:
                     raise
+
+    def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
+        client = self._get_client()
+        system_prompt = NARRATION_SYSTEM_PROMPT.format(target_minutes=target_minutes)
+        
+        response = client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Transcript:\n{full_transcript}"},
+            ],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -237,32 +289,22 @@ class OllamaProvider(LLMProvider):
             "stream": False,
             "options": {
                 "temperature": 0.4 if clip_mode == "short" else 0.5,
-                "num_ctx": 4096,
+                "num_ctx": 8192,
             },
         }
 
-        # Force CPU-only if configured
         if self.cpu_only:
             payload["options"]["num_gpu"] = 0
 
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                logger.info(
-                    f"Ollama ({self.model}) scoring {len(segments)} segments "
-                    f"[mode={clip_mode}, attempt={attempt + 1}]"
-                )
-                r = httpx.post(
-                    f"{self.base_url}/api/chat",
-                    json=payload,
-                    timeout=self.timeout,
-                )
+                logger.info(f"Ollama ({self.model}) scoring {len(segments)} segments [attempt={attempt + 1}]")
+                r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
                 r.raise_for_status()
 
                 raw = r.json()["message"]["content"].strip()
-                scores = _parse_scores(raw, len(segments))
-                logger.info(f"Ollama returned {len(scores)} scores")
-                return scores
+                return _parse_scores(raw, len(segments))
 
             except Exception as e:
                 logger.warning(f"Ollama attempt {attempt + 1}/{max_retries} failed: {e}")
@@ -270,6 +312,24 @@ class OllamaProvider(LLMProvider):
                     time.sleep(3)
                 else:
                     raise
+
+    def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
+        import httpx
+        system_prompt = NARRATION_SYSTEM_PROMPT.format(target_minutes=target_minutes)
+        
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Transcript:\n{full_transcript}"},
+            ],
+            "stream": False,
+            "options": {"temperature": 0.7, "num_ctx": 16384},
+        }
+        
+        r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()["message"]["content"].strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -280,48 +340,28 @@ class FallbackProvider(LLMProvider):
     """Heuristic-based scoring when no LLM is available."""
 
     def is_configured(self) -> bool:
-        return True  # Always available
+        return True
 
     def score_segments(self, segments, user_prompt, clip_mode="short"):
-        """Score segments using text heuristics."""
-        logger.info("Using fallback heuristic scoring (no LLM available)")
-
-        prompt_lower = user_prompt.lower()
-        prompt_keywords = set(prompt_lower.split())
+        logger.info("Using fallback heuristic scoring")
         scores = []
-
         for i, seg in enumerate(segments):
-            text = seg.get("text", "").strip()
-            text_lower = text.lower()
-            score = 5  # base score
-
-            # Length bonus — longer dialogue is usually more substantive
-            word_count = len(text.split())
-            if word_count > 20:
-                score += 1
-            if word_count > 40:
-                score += 1
-
-            # Keyword match bonus
-            matching_words = prompt_keywords & set(text_lower.split())
-            score += min(len(matching_words), 2)
-
-            # Emotional indicators
-            emotional_markers = [
-                "!", "?", "...", "wow", "amazing", "crazy",
-                "love", "hate", "funny", "hilarious", "sad",
-                "angry", "shocked", "incredible", "insane",
-            ]
-            for marker in emotional_markers:
-                if marker in text_lower:
-                    score += 1
-                    break
-
-            # Clamp to 1-10
-            score = max(1, min(10, score))
-            scores.append({"index": i, "score": score})
-
+            text = seg.get("text", "").lower()
+            score = 5
+            if "!" in text or "?" in text: score += 2
+            if any(word in text for word in ["wow", "amazing", "crazy", "funny"]): score += 2
+            
+            scores.append({
+                "index": i,
+                "score": min(10, score),
+                "hook_strength": 5,
+                "emotional_intensity": 5,
+                "engagement_reason": "Heuristic match."
+            })
         return scores
+
+    def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
+        return f"Condensed summary of the video (approx {target_minutes} min):\n\n{full_transcript[:1000]}..."
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -341,15 +381,9 @@ class LLMService:
         return self._provider
 
     def _create_provider(self) -> LLMProvider:
-        # 1. OpenAI (paid, highest quality)
         if settings.OPENAI_API_KEY and settings.OPENAI_API_KEY.strip():
-            logger.info(f"Using OpenAI provider (model: {settings.LLM_MODEL_NAME})")
-            return OpenAIProvider(
-                api_key=settings.OPENAI_API_KEY,
-                model=settings.LLM_MODEL_NAME,
-            )
+            return OpenAIProvider(api_key=settings.OPENAI_API_KEY, model=settings.LLM_MODEL_NAME)
 
-        # 2. Ollama (free, local — primary recommended)
         ollama = OllamaProvider(
             base_url=settings.OLLAMA_BASE_URL,
             model=settings.OLLAMA_MODEL,
@@ -357,11 +391,8 @@ class LLMService:
             timeout=settings.OLLAMA_TIMEOUT,
         )
         if ollama.is_configured():
-            logger.info(f"Using Ollama provider (model: {settings.OLLAMA_MODEL})")
             return ollama
 
-        # 3. Fallback heuristic (always available)
-        logger.info("No LLM available — using fallback heuristic scoring")
         return FallbackProvider()
 
     def is_configured(self) -> bool:
@@ -374,25 +405,13 @@ class LLMService:
         clip_mode: str = "short",
         batch_size: int = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Score segments in batches to manage token/context limits.
-        Returns a flat list of {index, score} dicts with global indices.
-        """
         batch_size = batch_size or settings.LLM_MAX_SEGMENTS_PER_BATCH
-        all_scores: List[Dict[str, Any]] = []
+        all_scores = []
 
         for batch_start in range(0, len(segments), batch_size):
             batch = segments[batch_start:batch_start + batch_size]
-            logger.info(
-                f"Scoring batch {batch_start // batch_size + 1} "
-                f"({len(batch)} segments, mode={clip_mode})"
-            )
+            batch_scores = self.provider.score_segments(batch, user_prompt, clip_mode=clip_mode)
 
-            batch_scores = self.provider.score_segments(
-                batch, user_prompt, clip_mode=clip_mode
-            )
-
-            # Remap indices to global
             for score_item in batch_scores:
                 score_item["index"] = score_item["index"] + batch_start
 
@@ -400,8 +419,10 @@ class LLMService:
 
         return all_scores
 
+    def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
+        return self.provider.generate_narration_script(full_transcript, target_minutes)
+
     def reset(self):
-        """Force re-creation of provider (e.g., after config change)."""
         self._provider = None
 
 

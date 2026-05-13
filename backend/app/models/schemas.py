@@ -2,8 +2,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import List, Optional
 from pydantic import BaseModel, Field
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+class ProcessingMode(str, Enum):
+    CLIPS = "clips"
+    NARRATION_SUMMARY = "narration_summary"
 
 
 # ---------------------------------------------------------------------------
@@ -41,6 +51,15 @@ class UploadAndCreateRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=5000)
 
 
+class ProcessRequest(BaseModel):
+    """Configuration for starting a processing job."""
+    prompt: Optional[str] = None
+    processing_mode: ProcessingMode = ProcessingMode.CLIPS
+    clip_mode: str = "short"
+    target_duration_minutes: Optional[int] = None
+    num_output_videos: int = 1
+
+
 # ---------------------------------------------------------------------------
 # Response bodies
 # ---------------------------------------------------------------------------
@@ -62,6 +81,7 @@ class ProjectResponse(BaseModel):
     file_size: int
     prompt: str
     clip_mode: str = "short"
+    processing_mode: str = "clips"
     status: str
     processing_stage: Optional[str] = None
     progress: int
@@ -90,6 +110,9 @@ class JobResponse(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     error: Optional[str] = None
+    target_duration_minutes: Optional[int] = None
+    num_output_videos: int = 1
+    narration_script: Optional[str] = None
 
     class Config:
         from_attributes = True

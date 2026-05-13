@@ -19,11 +19,13 @@ router = APIRouter()
 async def upload_video(
     file: UploadFile = File(...),
     prompt: str = Form(""),
+    clip_mode: str = Form("short"),
+    processing_mode: str = Form("clips"),
     db: Session = Depends(get_db),
 ):
     """
     Upload a video file and create a project in one step.
-    The prompt can be set now or updated later before processing.
+    Supports setting clip_mode and processing_mode immediately.
     """
     # 1. Validate extension
     await validate_video_file(file)
@@ -50,12 +52,14 @@ async def upload_video(
     # 6. Create project record
     project = Project(
         id=project_id,
-        name=file.filename.rsplit(".", 1)[0],  # filename without extension
+        name=file.filename.rsplit(".", 1)[0],
         filename=stored_name,
         original_filename=file.filename,
         filepath=dest_path,
         file_size=file_size,
         prompt=prompt or "Find the most engaging moments",
+        clip_mode=clip_mode,
+        processing_mode=processing_mode,
         status="pending",
     )
     db.add(project)

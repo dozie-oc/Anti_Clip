@@ -35,15 +35,36 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created")
 
-    # Auto-migrate: add clip_mode column if missing (for existing DBs)
+    # Auto-migrate: add new columns if missing (for existing DBs)
     from sqlalchemy import inspect as sa_inspect, text
     inspector = sa_inspect(engine)
-    columns = [c["name"] for c in inspector.get_columns("projects")]
-    if "clip_mode" not in columns:
-        with engine.connect() as conn:
-            conn.execute(text("ALTER TABLE projects ADD COLUMN clip_mode VARCHAR DEFAULT 'short'"))
-            conn.commit()
-        logger.info("Migrated: added clip_mode column to projects table")
+
+    # Projects table migrations
+    proj_cols = [c["name"] for c in inspector.get_columns("projects")]
+    proj_migrations = {
+        "clip_mode": "ALTER TABLE projects ADD COLUMN clip_mode VARCHAR DEFAULT 'short'",
+        "processing_mode": "ALTER TABLE projects ADD COLUMN processing_mode VARCHAR DEFAULT 'clips'",
+    }
+    for col, sql in proj_migrations.items():
+        if col not in proj_cols:
+            with engine.connect() as conn:
+                conn.execute(text(sql))
+                conn.commit()
+            logger.info(f"Migrated: added {col} column to projects table")
+
+    # Jobs table migrations
+    job_cols = [c["name"] for c in inspector.get_columns("jobs")]
+    job_migrations = {
+        "target_duration_minutes": "ALTER TABLE jobs ADD COLUMN target_duration_minutes INTEGER",
+        "num_output_videos": "ALTER TABLE jobs ADD COLUMN num_output_videos INTEGER DEFAULT 1",
+        "narration_script": "ALTER TABLE jobs ADD COLUMN narration_script TEXT",
+    }
+    for col, sql in job_migrations.items():
+        if col not in job_cols:
+            with engine.connect() as conn:
+                conn.execute(text(sql))
+                conn.commit()
+            logger.info(f"Migrated: added {col} column to jobs table")
 
     # Ensure storage directories
     for d in [settings.UPLOAD_DIR, settings.CLIPS_DIR, settings.TEMP_DIR]:

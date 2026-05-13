@@ -1,181 +1,45 @@
-# AntiClip — AI Video Clipper
+# AntiClip — Local-First AI Video Clipper
 
-**Local-first AI-powered video clipping platform.**  
-Upload long-form videos, describe what clips you want, and let AI do the rest.
+AntiClip is a powerful, fully local AI pipeline for video processing, designed to help you create viral social media content and condensed video recaps without high API costs.
 
----
+## 🚀 Key Features
 
-## Architecture
+### 🎬 Viral Clips Mode (Phase 1)
+- **Scene-Aware Cuts:** Uses `PySceneDetect` to ensure clips start and end on natural visual boundaries.
+- **Vertical Rendering:** Automatic center-cropping to 9:16 aspect ratio for TikTok, Shorts, and Reels.
+- **Burned-in Subtitles:** High-visibility captions hard-coded into the video.
+- **Local LLM Analysis:** Integrated with **Ollama (qwen2.5-coder:7b)** for structured viral scoring (`hook_strength`, `emotional_intensity`).
 
-```
-Frontend (React + Vite + TailwindCSS)
-        ↓ Axios
-FastAPI REST API
-        ↓
-Background Worker Thread
-        ↓
-┌──────────────────────────────┐
-│  1. FFmpeg Audio Extraction  │
-│  2. Whisper Transcription    │
-│  3. LLM Segment Scoring     │
-│  4. FFmpeg Clip Generation   │
-└──────────────────────────────┘
-        ↓
-Results Dashboard (video players + downloads)
-```
+### 🎙️ Narration Summary Mode (Phase 2)
+- **AI Recap Generation:** Condensed summaries for long-form content (movies, episodes, tutorials).
+- **Local TTS:** Uses **Piper TTS (lessac-medium)** for high-quality, professional narration.
+- **Intelligent Scripting:** AI generates a script and automatically identifies which scenes to show during the recap.
 
-## Tech Stack
+## 🛠️ Setup
 
-| Layer       | Technology                                    |
-|-------------|-----------------------------------------------|
-| Frontend    | React 18, Vite, TailwindCSS, Zustand, Axios  |
-| Backend     | FastAPI, SQLAlchemy, SQLite                   |
-| AI          | OpenAI Whisper (transcription), GPT-4o (scoring) |
-| Video       | FFmpeg (audio extraction + clip cutting)      |
+1. **Ollama:** Install [Ollama](https://ollama.com/) and run:
+   ```bash
+   ollama pull qwen2.5-coder:7b
+   ```
+2. **FFmpeg:** Ensure `ffmpeg` and `ffprobe` are in your system PATH.
+3. **Piper Models:** Place `.onnx` and `.onnx.json` voice models in `storage/models/piper/`.
+4. **Environment:** Copy `.env.example` to `.env` and configure your paths.
 
-## Quick Start
+## ⚙️ Running Locally
 
-### Prerequisites
-
-- **Python 3.11+**
-- **Node.js 18+**
-- **FFmpeg** (must be in your system PATH)
-- **OpenAI API key** (optional — falls back to heuristic scoring)
-
-### 1. Backend Setup
-
+### Backend
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-venv\Scripts\activate       # Windows
-# source venv/bin/activate  # macOS/Linux
-
-# Install dependencies
+.\venv\Scripts\activate
 pip install -r requirements.txt
-
-# Configure environment
-copy .env.example .env
-# Edit .env and set your OPENAI_API_KEY
-
-# Start server
-uvicorn app.main:app --reload
+python run.py
 ```
 
-The API will be running at `http://localhost:8000`
-
-### 2. Frontend Setup
-
+### Frontend
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start dev server
 npm run dev
 ```
 
-The UI will be at `http://localhost:5173`
-
-## Configuration
-
-Edit `backend/.env`:
-
-```env
-# Required
-OPENAI_API_KEY=sk-your-key-here
-
-# Optional
-LLM_MODEL_NAME=gpt-4o          # or gpt-4.1, gpt-4o-mini
-WHISPER_MODEL=base              # tiny, base, small, medium, large
-LLM_SCORE_THRESHOLD=6           # minimum score (1-10) to select a clip
-LLM_MAX_CLIPS=10                # max clips per project
-```
-
-> **No API key?** The system works without one — it uses heuristic-based scoring
-> (text length, keyword matching, emotional markers) as a fallback.
-
-## How It Works
-
-1. **Upload** a video (MP4, MKV, MOV, AVI, WebM)
-2. **Write a prompt** describing the clips you want:
-   - *"Find funny moments"*
-   - *"Create viral YouTube Shorts"*
-   - *"Extract emotional dialogue"*
-3. **Start processing** — the pipeline runs in the background:
-   - Audio extraction via FFmpeg
-   - Speech-to-text via Whisper
-   - AI scoring of transcript segments
-   - Clip generation via FFmpeg
-4. **Download clips** with embedded video players and score badges
-
-## API Endpoints
-
-| Method   | Endpoint                          | Description                    |
-|----------|-----------------------------------|--------------------------------|
-| `POST`   | `/api/v1/upload`                  | Upload video + create project  |
-| `GET`    | `/api/v1/projects`                | List all projects              |
-| `GET`    | `/api/v1/projects/{id}`           | Get project details            |
-| `PATCH`  | `/api/v1/projects/{id}`           | Update prompt/name             |
-| `DELETE` | `/api/v1/projects/{id}`           | Delete project + files         |
-| `POST`   | `/api/v1/projects/{id}/process`   | Start AI pipeline              |
-| `POST`   | `/api/v1/projects/{id}/reset`     | Reset for reprocessing         |
-| `GET`    | `/api/v1/projects/{id}/job`       | Get job/pipeline status        |
-| `GET`    | `/health`                         | System health check            |
-
-## Project Structure
-
-```
-Anti_Clip/
-├── backend/
-│   ├── app/
-│   │   ├── main.py              # FastAPI app + lifecycle
-│   │   ├── database.py          # SQLAlchemy engine + session
-│   │   ├── worker.py            # Background processing pipeline
-│   │   ├── core/
-│   │   │   └── config.py        # Settings (env-driven)
-│   │   ├── models/
-│   │   │   ├── project.py       # Project ORM model
-│   │   │   ├── job.py           # Job ORM model
-│   │   │   └── schemas.py       # Pydantic request/response schemas
-│   │   ├── api/routes/
-│   │   │   ├── upload.py        # POST /upload
-│   │   │   ├── projects.py      # CRUD /projects
-│   │   │   └── process.py       # POST /process
-│   │   └── services/
-│   │       ├── llm_service.py   # OpenAI + fallback adapter
-│   │       ├── transcription_service.py  # Whisper
-│   │       ├── clip_engine.py   # LLM scoring + clip generation
-│   │       └── video_service.py # FFmpeg operations
-│   ├── storage/                 # Auto-created at runtime
-│   ├── requirements.txt
-│   └── .env.example
-└── frontend/
-    ├── src/
-    │   ├── pages/
-    │   │   ├── UploadPage.jsx
-    │   │   ├── ProjectsPage.jsx
-    │   │   ├── ProjectDetailPage.jsx
-    │   │   ├── QueuePage.jsx
-    │   │   └── SettingsPage.jsx
-    │   ├── components/layout/
-    │   ├── services/api.js
-    │   └── store/appStore.js
-    ├── package.json
-    └── tailwind.config.js
-```
-
-## LLM Architecture
-
-The system uses an **adapter pattern** for LLM providers:
-
-```
-LLMProvider (abstract)
-  ├── OpenAIProvider    ← primary (GPT-4o)
-  └── FallbackProvider  ← heuristic scoring (no API key needed)
-```
-
-Future providers (Ollama, Llama, Mistral) can be added by implementing
-the `LLMProvider` interface in `services/llm_service.py`.

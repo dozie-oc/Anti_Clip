@@ -1,11 +1,11 @@
 """Process route — start the AI clipping pipeline for a project."""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db, SessionLocal
 from app.models.project import Project
 from app.models.job import Job
-from app.models.schemas import ProcessResponse
+from app.models.schemas import ProcessRequest, ProcessResponse
 from app.worker import start_processing
 
 router = APIRouter()
@@ -14,12 +14,12 @@ router = APIRouter()
 @router.post("/projects/{project_id}/process", response_model=ProcessResponse)
 async def start_processing_route(
     project_id: str,
-    prompt: str = None,
+    body: ProcessRequest = Body(default=ProcessRequest()),
     db: Session = Depends(get_db),
 ):
     """
-    Kick off the background AI clipping pipeline for a project.
-    Optionally update the prompt before processing starts.
+    Kick off the background processing pipeline for a project.
+    Supports both 'clips' and 'narration_summary' modes.
     """
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -28,9 +28,11 @@ async def start_processing_route(
     if project.status == "processing":
         raise HTTPException(status_code=409, detail="Project is already being processed.")
 
-    # Optionally update prompt
-    if prompt:
-        project.prompt = prompt
+    # Update project settings from request
+    if body.prompt:
+        project.prompt = body.prompt
+    project.processing_mode = body.processing_mode.value
+    project.clip_mode = body.clip_mode
 
     # Reset project state for (re)processing
     project.status = "processing"
@@ -39,8 +41,12 @@ async def start_processing_route(
     project.clips = []
     project.error_message = None
 
-    # Create a new job record
-    job = Job(project_id=project_id)
+    # Create a new job record with mode-specific fields
+    job = Job(
+        project_id=project_id,
+        target_duration_minutes=body.target_duration_minutes,
+        num_output_videos=body.num_output_videos,
+    )
     db.add(job)
     db.commit()
     db.refresh(job)
@@ -50,7 +56,7 @@ async def start_processing_route(
     start_processing(project_id, SessionLocal)
 
     return ProcessResponse(
-        message="Processing started.",
+        message=f"Processing started ({body.processing_mode.value} mode).",
         project_id=project_id,
         job_id=job.id,
     )

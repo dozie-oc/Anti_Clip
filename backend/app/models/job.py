@@ -19,5 +19,10 @@ class Job(Base):
     finished_at = Column(DateTime, nullable=True)
     error = Column(Text, nullable=True)
 
+    # Narration summary mode fields
+    target_duration_minutes = Column(Integer, nullable=True)  # desired output length
+    num_output_videos = Column(Integer, default=1)
+    narration_script = Column(Text, nullable=True)  # AI-generated narration text
+
     # Relationship
     project = relationship("Project", back_populates="jobs")

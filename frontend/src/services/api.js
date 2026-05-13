@@ -21,15 +21,14 @@ api.interceptors.response.use(
 
 // ── Upload ──────────────────────────────────────────────────────────────────
 /**
- * Upload a video file with optional prompt.
- * @param {File} file
- * @param {string} prompt
- * @param {(pct: number) => void} onProgress
+ * Upload a video file with optional settings.
  */
-export async function uploadVideo(file, prompt, onProgress) {
+export async function uploadVideo(file, config = {}, onProgress) {
   const form = new FormData()
   form.append('file', file)
-  form.append('prompt', prompt || '')
+  form.append('prompt', config.prompt || '')
+  form.append('clip_mode', config.clip_mode || 'short')
+  form.append('processing_mode', config.processing_mode || 'clips')
 
   const { data } = await api.post('/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -67,9 +66,12 @@ export async function resetProject(id) {
 }
 
 // ── Processing ──────────────────────────────────────────────────────────────
-export async function startProcessing(projectId, prompt) {
-  const params = prompt ? { prompt } : {}
-  const { data } = await api.post(`/projects/${projectId}/process`, null, { params })
+/**
+ * Start processing with full mode configuration.
+ */
+export async function startProcessing(projectId, config = {}) {
+  // Use the new ProcessRequest schema (sent as JSON body)
+  const { data } = await api.post(`/projects/${projectId}/process`, config)
   return data
 }
 

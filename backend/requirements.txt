@@ -9,6 +9,9 @@ sqlalchemy==2.0.30
 openai-whisper==20231117
 openai>=1.30.0
 ffmpeg-python==0.2.0
+scenedetect
+piper-tts
+httpx
 torch
 torchaudio
 numpy<2.0.0

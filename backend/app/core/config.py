@@ -38,10 +38,14 @@ class Settings(BaseSettings):
     OLLAMA_CPU_ONLY: bool = False   # set True to force CPU-only inference
     OLLAMA_TIMEOUT: int = 120       # seconds per batch request
 
-    # ── Video / Audio processing ──────────────────────────────────────────
+    # ── Whisper Configuration ──────────────────────────────────────────────
     FFMPEG_PATH: str = "ffmpeg"
     FFPROBE_PATH: str = "ffprobe"
-    WHISPER_MODEL: str = "base"  # tiny, base, small, medium, large
+    WHISPER_MODEL: str = "base"
+
+    # ── TTS Configuration ──────────────────────────────────────────────────
+    PIPER_VOICE: str = "en_US-lessac-medium"
+    PIPER_MODELS_DIR: str = "storage/models/piper"  # tiny, base, small, medium, large
 
     # ── Clip defaults ──────────────────────────────────────────────────────
     MIN_CLIP_DURATION: float = 5.0
