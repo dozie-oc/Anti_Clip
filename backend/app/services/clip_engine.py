@@ -31,11 +31,11 @@ MODE_PROFILES = {
 class ClipEngine:
     """Scores, ranks, and generates professional social media clips."""
 
-    def select_clips(self, segments: List[Dict[str, Any]], user_prompt: str, clip_mode: str = "short") -> List[Dict[str, Any]]:
+    def select_clips(self, segments: List[Dict[str, Any]], user_prompt: str, clip_mode: str = "short", progress_callback: callable = None) -> List[Dict[str, Any]]:
         profile = MODE_PROFILES.get(clip_mode, MODE_PROFILES["short"])
         
         # 1. Get detailed scores from LLM
-        scored_data = llm_service.score_segments_batched(segments, user_prompt, clip_mode=clip_mode)
+        scored_data = llm_service.score_segments_batched(segments, user_prompt, clip_mode=clip_mode, progress_callback=progress_callback)
         score_map = {s["index"]: s for s in scored_data}
 
         candidates = []

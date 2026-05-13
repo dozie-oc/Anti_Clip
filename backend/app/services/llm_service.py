@@ -413,18 +413,33 @@ class LLMService:
         user_prompt: str,
         clip_mode: str = "short",
         batch_size: int = None,
+        progress_callback: callable = None,
     ) -> List[Dict[str, Any]]:
         batch_size = batch_size or settings.LLM_MAX_SEGMENTS_PER_BATCH
         all_scores = []
+        total_segments = len(segments)
+        
+        batches = list(range(0, total_segments, batch_size))
+        total_batches = len(batches)
 
-        for batch_start in range(0, len(segments), batch_size):
+        for i, batch_start in enumerate(batches):
             batch = segments[batch_start:batch_start + batch_size]
+            current_batch = i + 1
+            
+            logger.info(f"AI Analysis: Scoring segments {batch_start} to {min(batch_start + batch_size, total_segments)} "
+                        f"[Batch {current_batch}/{total_batches}]")
+            
             batch_scores = self.provider.score_segments(batch, user_prompt, clip_mode=clip_mode)
 
             for score_item in batch_scores:
                 score_item["index"] = score_item["index"] + batch_start
 
             all_scores.extend(batch_scores)
+            
+            if progress_callback:
+                # Map analysis phase (55-70%) based on batch progress
+                sub_progress = 55 + int((current_batch / total_batches) * 15)
+                progress_callback(sub_progress, f"Scored {min(batch_start + batch_size, total_segments)}/{total_segments} segments...")
 
         return all_scores
 

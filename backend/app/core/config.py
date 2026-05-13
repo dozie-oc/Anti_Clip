@@ -34,9 +34,9 @@ class Settings(BaseSettings):
 
     # ── Ollama Configuration ──────────────────────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen2.5-coder:7b"
+    OLLAMA_MODEL: str = "qwen2.5:7b"
     OLLAMA_CPU_ONLY: bool = False   # set True to force CPU-only inference
-    OLLAMA_TIMEOUT: int = 1200      # 20 minutes (needed for full movie/episode summaries on CPU)
+    OLLAMA_TIMEOUT: int = 120       # seconds per batch request
 
     # ── Whisper Configuration ──────────────────────────────────────────────
     FFMPEG_PATH: str = "ffmpeg"

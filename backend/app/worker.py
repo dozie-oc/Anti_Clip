@@ -105,7 +105,14 @@ def process_video_job(project_id: str, db: Session):
             # CLIPS MODE
             _update_job(db, job, stage="analyzing", progress=55, stage_detail="Scoring viral clips...")
             _update_project(db, project, processing_stage="analyzing", progress=55)
-            clips_metadata = clip_engine.select_clips(segments, project.prompt, clip_mode=project.clip_mode)
+
+            def progress_cb(prog, detail):
+                _update_job(db, job, progress=prog, stage_detail=detail)
+                _update_project(db, project, progress=prog)
+
+            clips_metadata = clip_engine.select_clips(
+                segments, project.prompt, clip_mode=project.clip_mode, progress_callback=progress_cb
+            )
             
             _update_job(db, job, stage="clipping", progress=75, stage_detail="Rendering vertical clips...")
             _update_project(db, project, processing_stage="clipping", progress=75)

@@ -42,12 +42,15 @@ class TTSService:
 
             logger.info(f"Synthesizing speech to {output_path}...")
             
-            # Load voice
-            voice = PiperVoice.load(model_path, config_path=config_path)
-            
             # Open output file and synthesize
             import wave
+            voice = PiperVoice.load(model_path, config_path=config_path)
+            
             with wave.open(output_path, "wb") as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(voice.config.sample_rate)
+                
                 voice.synthesize(text, wav_file)
             
             logger.info("Speech synthesis complete")
