@@ -20,18 +20,46 @@ logger = logging.getLogger(__name__)
 
 
 def _update_job(db: Session, job: Job, **kwargs):
-    for key, value in kwargs.items():
-        setattr(job, key, value)
-    db.commit()
-    db.refresh(job)
+    try:
+        # Try to refresh, if it fails (ObjectDeletedError), try to re-fetch
+        try:
+            db.refresh(job)
+        except:
+            new_job = db.query(Job).filter(Job.id == job.id).first()
+            if new_job:
+                job = new_job
+            else:
+                return # Job is gone
+
+        for key, value in kwargs.items():
+            setattr(job, key, value)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update job: {e}")
+        db.rollback()
+
+
 
 
 def _update_project(db: Session, project: Project, **kwargs):
-    for key, value in kwargs.items():
-        setattr(project, key, value)
-    project.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(project)
+    try:
+        try:
+            db.refresh(project)
+        except:
+            new_project = db.query(Project).filter(Project.id == project.id).first()
+            if new_project:
+                project = new_project
+            else:
+                return
+
+        for key, value in kwargs.items():
+            setattr(project, key, value)
+        project.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to update project: {e}")
+        db.rollback()
+
 
 
 def _check_cancellation(db: Session, project_id: str):
@@ -85,7 +113,6 @@ def process_video_job(project_id: str, db: Session):
         if mode == "narration_summary":
             _update_job(db, job, stage="analyzing", progress=55, stage_detail="Generating narration script...")
             _update_project(db, project, processing_stage="analyzing", progress=55)
-            
             # Combine all text for narration input
             full_text = " ".join([s["text"] for s in segments])
             target_min = job.target_duration_minutes or 5

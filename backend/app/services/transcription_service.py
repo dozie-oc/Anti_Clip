@@ -27,34 +27,51 @@ class TranscriptionService:
         self._model = None
 
     def _load_model(self):
-        """Lazy-load the Whisper model on first use."""
+        """Lazy-load the Faster-Whisper model on first use."""
         if self._model is None:
-            import whisper
+            from faster_whisper import WhisperModel
             import torch
 
             device = "cuda" if torch.cuda.is_available() else "cpu"
-            logger.info(f"Loading Whisper model '{self._model_name}' on {device}")
-            self._model = whisper.load_model(self._model_name, device=device)
-            logger.info("Whisper model loaded successfully")
+            # Use int8 for CPU, float16 or int8_float16 for CUDA
+            compute_type = "int8" if device == "cpu" else "float16"
+            
+            logger.info(f"Loading Faster-Whisper model '{self._model_name}' on {device} ({compute_type})")
+            self._model = WhisperModel(self._model_name, device=device, compute_type=compute_type)
+            logger.info("Faster-Whisper model loaded successfully")
         return self._model
 
     def transcribe(self, audio_path: str) -> List[Dict[str, Any]]:
         """
-        Transcribe audio file and return raw Whisper segments.
+        Transcribe audio file using faster-whisper and return segments as dicts.
         """
         if not os.path.exists(audio_path):
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         model = self._load_model()
-        logger.info(f"Transcribing: {audio_path}")
+        logger.info(f"Transcribing (faster-whisper): {audio_path}")
 
-        import torch
-        use_fp16 = torch.cuda.is_available()
-        result = model.transcribe(audio_path, verbose=False, fp16=use_fp16)
-        raw_segments = result.get("segments", [])
+        # beam_size=5 and vad_filter=True for better quality and noise handling
+        segments_iter, info = model.transcribe(
+            audio_path, 
+            beam_size=5, 
+            vad_filter=True,
+            vad_parameters=dict(min_silence_duration_ms=500)
+        )
+        
+        # Convert iterator to list of dicts for compatibility
+        raw_segments = []
+        for s in segments_iter:
+            raw_segments.append({
+                "start": s.start,
+                "end": s.end,
+                "text": s.text.strip(),
+                "avg_logprob": s.avg_logprob
+            })
 
-        logger.info(f"Transcription complete: {len(raw_segments)} raw segments")
+        logger.info(f"Transcription complete: {len(raw_segments)} segments (lang={info.language})")
         return raw_segments
+
 
     def align_segments_to_scenes(
         self, 
@@ -77,7 +94,8 @@ class TranscriptionService:
         current_chunk = {
             "start": scenes[0][0],
             "end": scenes[0][1],
-            "text": ""
+            "text": "",
+            "logprobs": []
         }
 
         for seg in raw_segments:
@@ -87,6 +105,12 @@ class TranscriptionService:
             while current_scene_idx < len(scenes) and seg_center > scenes[current_scene_idx][1]:
                 # Move to next scene
                 if current_chunk["text"].strip():
+                    # Calculate final avg logprob
+                    if current_chunk["logprobs"]:
+                        current_chunk["avg_logprob"] = sum(current_chunk["logprobs"]) / len(current_chunk["logprobs"])
+                    else:
+                        current_chunk["avg_logprob"] = -1.0
+                    del current_chunk["logprobs"]
                     aligned.append(current_chunk)
                 
                 current_scene_idx += 1
@@ -94,18 +118,26 @@ class TranscriptionService:
                     current_chunk = {
                         "start": scenes[current_scene_idx][0],
                         "end": scenes[current_scene_idx][1],
-                        "text": ""
+                        "text": "",
+                        "logprobs": []
                     }
                 else:
                     break
             
             if current_scene_idx < len(scenes):
                 current_chunk["text"] += " " + seg["text"].strip()
+                if "avg_logprob" in seg:
+                    current_chunk["logprobs"].append(seg["avg_logprob"])
             else:
                 # Segment falls after last detected scene
                 pass
 
         if current_chunk["text"].strip():
+            if current_chunk["logprobs"]:
+                current_chunk["avg_logprob"] = sum(current_chunk["logprobs"]) / len(current_chunk["logprobs"])
+            else:
+                current_chunk["avg_logprob"] = -1.0
+            del current_chunk["logprobs"]
             aligned.append(current_chunk)
 
         logger.info(f"Aligned {len(raw_segments)} segments into {len(aligned)} scene-aware chunks")

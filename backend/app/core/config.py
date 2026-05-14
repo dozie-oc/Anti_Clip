@@ -28,15 +28,15 @@ class Settings(BaseSettings):
     # ── LLM Configuration ──────────────────────────────────────────────────
     OPENAI_API_KEY: str = ""
     LLM_MODEL_NAME: str = "gpt-4o"
-    LLM_MAX_SEGMENTS_PER_BATCH: int = 20
+    LLM_MAX_SEGMENTS_PER_BATCH: int = 1
     LLM_SCORE_THRESHOLD: int = 6  # minimum score to select a segment
     LLM_MAX_CLIPS: int = 10
 
     # ── Ollama Configuration ──────────────────────────────────────────────
     OLLAMA_BASE_URL: str = "http://localhost:11434"
-    OLLAMA_MODEL: str = "qwen2.5:7b"
+    OLLAMA_MODEL: str = "qwen2.5:3b"
     OLLAMA_CPU_ONLY: bool = False   # set True to force CPU-only inference
-    OLLAMA_TIMEOUT: int = 120       # seconds per batch request
+    OLLAMA_TIMEOUT: int = 1200      # 20 minutes (max safety for slow CPUs)
 
     # ── Whisper Configuration ──────────────────────────────────────────────
     FFMPEG_PATH: str = "ffmpeg"

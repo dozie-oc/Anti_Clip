@@ -34,12 +34,19 @@ class ClipEngine:
     def select_clips(self, segments: List[Dict[str, Any]], user_prompt: str, clip_mode: str = "short", progress_callback: callable = None) -> List[Dict[str, Any]]:
         profile = MODE_PROFILES.get(clip_mode, MODE_PROFILES["short"])
         
+        # 0. Pre-filter segments to save LLM time
+        filtered_segments = llm_service.filter_segments(segments)
+        
+        if not filtered_segments:
+            logger.warning("No segments remained after pre-filtering.")
+            return []
+
         # 1. Get detailed scores from LLM
-        scored_data = llm_service.score_segments_batched(segments, user_prompt, clip_mode=clip_mode, progress_callback=progress_callback)
+        scored_data = llm_service.score_segments_batched(filtered_segments, user_prompt, clip_mode=clip_mode, progress_callback=progress_callback)
         score_map = {s["index"]: s for s in scored_data}
 
         candidates = []
-        for i, seg in enumerate(segments):
+        for i, seg in enumerate(filtered_segments):
             metrics = score_map.get(i, {"score": 5, "hook_strength": 5, "emotional_intensity": 5, "engagement_reason": "N/A"})
             
             # Better ranking: weight score and hook strength

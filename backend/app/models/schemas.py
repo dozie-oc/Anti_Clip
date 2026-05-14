@@ -23,13 +23,14 @@ class ProcessingMode(str, Enum):
 class ClipMeta(BaseModel):
     id: str
     filename: str
-    path: str
-    start: float
-    end: float
-    duration: float
-    text: str
+    path: Optional[str] = None
+    start: Optional[float] = 0.0
+    end: Optional[float] = 0.0
+    duration: Optional[float] = 0.0
+    text: Optional[str] = ""
     score: Optional[int] = None
     url: Optional[str] = None
+
 
 
 # ---------------------------------------------------------------------------

@@ -288,26 +288,26 @@ class OllamaProvider(LLMProvider):
             "format": "json",
             "stream": False,
             "options": {
-                "temperature": 0.4 if clip_mode == "short" else 0.5,
+                "temperature": 0.3,
                 "num_ctx": 8192,
             },
         }
 
+
         if self.cpu_only:
             payload["options"]["num_gpu"] = 0
 
-        max_retries = 2
+        max_retries = 3
         for attempt in range(max_retries):
             try:
-                logger.info(f"Ollama ({self.model}) scoring {len(segments)} segments [attempt={attempt + 1}]")
+                logger.info(f"Ollama Scoring: Sending request to {self.model} (Attempt {attempt+1}/{max_retries})...")
                 r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
                 r.raise_for_status()
-
                 raw = r.json()["message"]["content"].strip()
                 return _parse_scores(raw, len(segments))
 
             except Exception as e:
-                logger.warning(f"Ollama attempt {attempt + 1}/{max_retries} failed: {e}")
+                logger.warning(f"Ollama scoring failed ({self.model}) [attempt {attempt + 1}/{max_retries}]: {e}")
                 if attempt < max_retries - 1:
                     time.sleep(3)
                 else:
@@ -406,6 +406,40 @@ class LLMService:
 
     def is_configured(self) -> bool:
         return self.provider.is_configured()
+
+    def filter_segments(self, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Lightweight pre-filter to remove useless segments before LLM scoring.
+        """
+        filtered = []
+        stats = {"total": len(segments), "short": 0, "low_confidence": 0, "empty": 0}
+        
+        for seg in segments:
+            duration = seg["end"] - seg["start"]
+            text = seg.get("text", "").strip()
+            confidence = seg.get("avg_logprob", 0.0)
+            
+            # 1. Skip very short segments (< 2s)
+            if duration < 2.0:
+                stats["short"] += 1
+                continue
+            
+            # 2. Skip low confidence segments (noisy/hallucinated)
+            # Typically logprob < -1.0 is very low quality
+            if confidence < -1.0:
+                stats["low_confidence"] += 1
+                continue
+                
+            # 3. Skip segments with virtually no text (at least 3 words)
+            if not text or len(text.split()) < 3:
+                stats["empty"] += 1
+                continue
+            
+            filtered.append(seg)
+            
+        logger.info(f"Segment Filtering: {len(filtered)}/{len(segments)} segments kept "
+                    f"({stats['short']} too short, {stats['low_confidence']} low confidence, {stats['empty']} too empty)")
+        return filtered
 
     def score_segments_batched(
         self,

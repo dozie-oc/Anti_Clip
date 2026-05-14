@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class SceneService:
     """Detects scenes in video files using ContentDetector."""
 
-    def detect_scenes(self, video_path: str, threshold: float = 27.0) -> List[Tuple[float, float]]:
+    def detect_scenes(self, video_path: str, threshold: float = 33.0) -> List[Tuple[float, float]]:
         """
         Detect scenes in a video file.
         Returns a list of (start_seconds, end_seconds) tuples.
