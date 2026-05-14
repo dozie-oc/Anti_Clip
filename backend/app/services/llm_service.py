@@ -53,17 +53,30 @@ AVOID: Fragments without context, surface-level statements.
 Return ONLY valid JSON. No markdown fences.
 Format: {"scores": [{"index": 0, "score": 8, "hook_strength": 6, "emotional_intensity": 9, "engagement_reason": "..."}, ...]}"""
 
-NARRATION_SYSTEM_PROMPT = """You are a master scriptwriter for video recaps and summaries.
+NARRATION_SYSTEM_PROMPT = """You are a master scriptwriter who creates narration for condensed video recaps — think skilled YouTuber telling a compelling story.
 
-Your task: based on the provided video transcript, write a compelling narration script for a condensed recap video.
+Your task: Based on the provided timestamped transcript, write a narration script for a {target_minutes}-minute recap video.
 
-Guidelines:
-• Tone: Engaging, concise, and professional (like a high-quality video essay).
-• Structure: Clear introduction, thematic summary of key events, and a strong conclusion.
-• Integration: Use [SCENE: start_time - end_time] markers to indicate where original video footage should play.
-• Duration: Aim for a script that fits a {target_minutes} minute summary.
+## Output Format
+Return ONLY a valid JSON array of objects. Do not include markdown blocks or preamble.
+Each object in the array MUST follow this structure:
+[
+  {{
+    "narration": "Natural narration text here.",
+    "scene_start": "MM:SS",
+    "scene_end": "MM:SS"
+  }},
+  ...
+]
 
-Return ONLY the script text with markers. No extra commentary."""
+## Guidelines
+- TONE: Natural and conversational.
+- STORY: Hook -> Major Beats -> Transitions -> Close.
+- SCENES: Use ONLY real timestamps from the transcript.
+- PACING: ~150 words/min. Total target: {word_target} words.
+- Each block should be 10-30 seconds of video.
+
+Return ONLY the JSON array."""
 
 
 def _get_system_prompt(clip_mode: str) -> str:
@@ -214,15 +227,26 @@ class OpenAIProvider(LLMProvider):
 
     def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
         client = self._get_client()
-        system_prompt = NARRATION_SYSTEM_PROMPT.format(target_minutes=target_minutes)
+        word_target = target_minutes * 150
+        system_prompt = NARRATION_SYSTEM_PROMPT.format(
+            target_minutes=target_minutes,
+            word_target=word_target,
+        )
+        
+        user_msg = (
+            f"Create a {target_minutes}-minute narration script for this video. "
+            f"Return ONLY a JSON array of narration blocks.\n\n"
+            f"Timestamped Transcript:\n{full_transcript}"
+        )
         
         response = client.chat.completions.create(
             model=self.model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Transcript:\n{full_transcript}"},
+                {"role": "user", "content": user_msg},
             ],
-            temperature=0.7,
+            temperature=0.6,
+            max_tokens=4000,
         )
         return response.choices[0].message.content.strip()
 
@@ -315,22 +339,46 @@ class OllamaProvider(LLMProvider):
 
     def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
         import httpx
-        system_prompt = NARRATION_SYSTEM_PROMPT.format(target_minutes=target_minutes)
+        word_target = target_minutes * 150
+        system_prompt = NARRATION_SYSTEM_PROMPT.format(
+            target_minutes=target_minutes,
+            word_target=word_target,
+        )
         
         truncated_text = self._truncate_transcript(full_transcript)
+        user_msg = (
+            f"Create a {target_minutes}-minute narration script for this video. "
+            f"Return ONLY a JSON array of narration blocks.\n\n"
+            f"Timestamped Transcript:\n{truncated_text}"
+        )
+        
         payload = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Transcript:\n{truncated_text}"},
+                {"role": "user", "content": user_msg},
             ],
+            "format": "json",
             "stream": False,
-            "options": {"temperature": 0.7, "num_ctx": 16384},
+            "options": {"temperature": 0.6, "num_ctx": 16384},
         }
+
+        if self.cpu_only:
+            payload["options"]["num_gpu"] = 0
         
-        r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
-        r.raise_for_status()
-        return r.json()["message"]["content"].strip()
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Ollama Narration: Generating script with {self.model} (attempt {attempt+1})...")
+                r = httpx.post(f"{self.base_url}/api/chat", json=payload, timeout=self.timeout)
+                r.raise_for_status()
+                return r.json()["message"]["content"].strip()
+            except Exception as e:
+                logger.warning(f"Ollama narration failed [attempt {attempt+1}/{max_retries}]: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
+                else:
+                    raise
 
     def _truncate_transcript(self, text: str, max_words: int = 6000) -> str:
         """Truncates transcript to fit within reasonable LLM context windows."""
@@ -370,7 +418,32 @@ class FallbackProvider(LLMProvider):
         return scores
 
     def generate_narration_script(self, full_transcript: str, target_minutes: int) -> str:
-        return f"Condensed summary of the video (approx {target_minutes} min):\n\n{full_transcript[:1000]}..."
+        """Fallback: extract key timestamped lines and return as JSON blocks."""
+        import json as _json
+        lines = full_transcript.strip().split("\n")
+        # Pick ~5 evenly-spaced lines that have timestamps
+        import re as _re
+        timestamped = []
+        for line in lines:
+            m = _re.match(r'\[(\d+:\d+(?::\d+)?)\s*-\s*(\d+:\d+(?::\d+)?)\]\s*(.*)', line)
+            if m and len(m.group(3).split()) > 5:
+                timestamped.append({"start": m.group(1), "end": m.group(2), "text": m.group(3)})
+        
+        if not timestamped:
+            return f'[{{"narration": "Here is a quick summary of the video.", "scene_start": "00:00", "scene_end": "00:30"}}]'
+        
+        step = max(1, len(timestamped) // 5)
+        picks = timestamped[::step][:6]
+        
+        blocks = []
+        for pick in picks:
+            blocks.append({
+                "narration": pick["text"][:200],
+                "scene_start": pick["start"],
+                "scene_end": pick["end"],
+            })
+        
+        return _json.dumps(blocks)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -113,16 +113,27 @@ def process_video_job(project_id: str, db: Session):
         if mode == "narration_summary":
             _update_job(db, job, stage="analyzing", progress=55, stage_detail="Generating narration script...")
             _update_project(db, project, processing_stage="analyzing", progress=55)
-            # Combine all text for narration input
-            full_text = " ".join([s["text"] for s in segments])
-            target_min = job.target_duration_minutes or 5
             
+            target_min = job.target_duration_minutes or 5
+
+            # Progress callback for granular narration tracking
+            def narration_progress_cb(prog, detail):
+                _update_job(db, job, progress=prog, stage_detail=detail)
+                _update_project(db, project, progress=prog)
+            
+            # Pass full transcript segments (with timestamps) — not flat text
             summary_results = narration_engine.process_narration_mode(
-                project_id, full_text, target_min, project.filepath, output_dir
+                project_id=project_id,
+                transcript_segments=segments,
+                target_minutes=target_min,
+                video_path=project.filepath,
+                output_dir=output_dir,
+                progress_callback=narration_progress_cb,
             )
+            _check_cancellation(db, project_id)
             
             # Update project and job with the script
-            script_text = summary_results[0]["script"]
+            script_text = summary_results[0].get("script", "")
             project.narration_script = script_text
             _update_job(db, job, narration_script=script_text)
             

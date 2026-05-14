@@ -114,8 +114,8 @@ export default function ProjectDetailPage() {
           </button>
           <div className="flex items-center gap-3">
             <h1 className="text-3xl font-bold text-ink-primary">{project.name}</h1>
-            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${project.processing_mode === 'clips' ? 'bg-accent/20 text-accent-light' : 'bg-purple-500/20 text-purple-400'}`}>
-              {project.processing_mode === 'clips' ? 'Viral Clips' : 'Narration'}
+            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${(project.processing_mode === 'narration_summary' || project.processing_mode === 'narration') ? 'bg-purple-500/20 text-purple-400' : 'bg-accent/20 text-accent-light'}`}>
+              {(project.processing_mode === 'narration_summary' || project.processing_mode === 'narration') ? 'Narration Recap' : 'Viral Clips'}
             </span>
           </div>
           <p className="text-ink-secondary italic">"{project.prompt}"</p>
@@ -186,21 +186,69 @@ export default function ProjectDetailPage() {
       {project.status === 'completed' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Main Content (Clips or Script) */}
+          {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            {project.processing_mode === 'narration_summary' ? (
-              <div className="glass-card p-8 space-y-6">
-                <div className="flex items-center gap-3 mb-4">
-                  <div className="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                    <Type size={24} className="text-purple-400" />
+            {(project.processing_mode === 'narration_summary' || project.processing_mode === 'narration' || project.narration_script) ? (
+              <div className="space-y-6">
+                {/* Main Narration Video */}
+                {project.clips && project.clips[0] && (
+                  <div className="glass-card overflow-hidden shadow-glow border-purple-500/30">
+                    <div className="p-4 border-b border-white/5 flex items-center justify-between bg-purple-500/5">
+                      <div className="flex items-center gap-2 text-purple-400">
+                        <Play size={18} fill="currentColor" />
+                        <span className="font-bold uppercase tracking-widest text-xs">Final AI Recap Video</span>
+                      </div>
+                      <a 
+                        href={project.clips[0].url || getClipUrl(id, project.clips[0].filename)} 
+                        download 
+                        className="btn-secondary py-1 px-3 text-xs flex items-center gap-1"
+                      >
+                        <Download size={14} /> Download
+                      </a>
+                    </div>
+                    <div className="aspect-video bg-black relative">
+                      <video 
+                        src={project.clips[0].url || getClipUrl(id, project.clips[0].filename)} 
+                        controls 
+                        className="w-full h-full object-contain" 
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold">Narration Script</h2>
-                    <p className="text-sm text-ink-secondary">Generated summary recap</p>
+                )}
+
+                {/* Narration Blocks / Storyboard */}
+                <div className="glass-card p-6 space-y-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-xl font-bold flex items-center gap-2">
+                      <Type size={20} className="text-purple-400" /> 
+                      Narration Storyboard
+                    </h2>
                   </div>
-                </div>
-                <div className="p-6 bg-black/30 rounded-xl font-serif text-lg leading-relaxed whitespace-pre-wrap text-ink-primary border border-white/5">
-                  {project.narration_script || "Script not found."}
+                  
+                  <div className="space-y-4">
+                    {project.clips?.[0]?.blocks ? (
+                      project.clips[0].blocks.map((block, idx) => (
+                        <div key={idx} className="group flex gap-4 p-4 rounded-xl bg-white/5 border border-white/5 hover:border-purple-500/30 transition-all">
+                          <div className="flex-shrink-0 w-12 h-12 rounded-lg bg-purple-500/10 flex flex-col items-center justify-center border border-purple-500/20">
+                            <span className="text-[10px] font-bold text-purple-400 uppercase">Block</span>
+                            <span className="text-lg font-bold text-white">{idx + 1}</span>
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono bg-white/10 px-1.5 py-0.5 rounded text-ink-muted">
+                                {block.scene_start.toFixed(1)}s - {block.scene_end.toFixed(1)}s
+                              </span>
+                            </div>
+                            <p className="text-ink-primary leading-relaxed">{block.narration}</p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="p-6 bg-black/30 rounded-xl font-serif text-lg leading-relaxed whitespace-pre-wrap text-ink-primary border border-white/5">
+                        {project.narration_script || "Script not found."}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             ) : (

@@ -30,6 +30,7 @@ class ClipMeta(BaseModel):
     text: Optional[str] = ""
     score: Optional[int] = None
     url: Optional[str] = None
+    blocks: Optional[List[dict]] = None
 
 
 
